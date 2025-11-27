@@ -1898,48 +1898,55 @@ const App: React.FC = () => {
             </div>
             
             {/* 버튼들: Samples, Load, Save 등 */}
-            <div className="flex items-center gap-2 flex-wrap">
-                <button onClick={() => setIsSidebarVisible(prev => !prev)} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md transition-colors" title="Toggle Module Sidebar"><Bars3Icon className="h-5 w-5" /></button>
+            <div className="flex items-center gap-2 flex-wrap justify-between">
+                <div className="flex items-center gap-2 flex-wrap">
+                    <button onClick={() => setIsSidebarVisible(prev => !prev)} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md transition-colors" title="Toggle Module Sidebar"><Bars3Icon className="h-5 w-5" /></button>
 
-                <div className="h-5 border-l border-gray-700"></div>
+                    <div className="h-5 border-l border-gray-700"></div>
 
-                <div className="relative">
-                    <button 
-                        onClick={() => setIsSampleMenuOpen(!isSampleMenuOpen)} 
-                        className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md font-semibold transition-colors ${isSampleMenuOpen ? 'bg-purple-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-200'}`}
-                        title="Load Sample Models"
-                    >
-                        <BeakerIcon className="h-4 w-4" />
-                        Samples
-                    </button>
-                    {isSampleMenuOpen && (
-                        <div className="absolute top-full left-0 mt-2 w-48 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 overflow-hidden">
-                            <div className="p-2 text-xs font-bold text-gray-500 uppercase">Predefined Models</div>
-                            {PREDEFINED_SAMPLES.map((sample, idx) => (
-                                <button
-                                    key={idx}
-                                    onClick={() => handleLoadSample(sample)}
-                                    className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors border-b border-gray-700 last:border-0"
-                                >
-                                    {sample.name}
-                                </button>
-                            ))}
-                        </div>
-                    )}
+                    <div className="relative">
+                        <button 
+                            onClick={() => setIsSampleMenuOpen(!isSampleMenuOpen)} 
+                            className={`flex items-center gap-1 px-1.5 py-1 text-xs rounded-md font-semibold transition-colors ${isSampleMenuOpen ? 'bg-purple-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-200'}`}
+                            title="Load Sample Models"
+                        >
+                            <BeakerIcon className="h-3.5 w-3.5" />
+                            Samples
+                        </button>
+                        {isSampleMenuOpen && (
+                            <div className="absolute top-full left-0 mt-2 w-48 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 overflow-hidden">
+                                <div className="p-2 text-xs font-bold text-gray-500 uppercase">Predefined Models</div>
+                                {PREDEFINED_SAMPLES.map((sample, idx) => (
+                                    <button
+                                        key={idx}
+                                        onClick={() => handleLoadSample(sample)}
+                                        className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors border-b border-gray-700 last:border-0"
+                                    >
+                                        {sample.name}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
-                <button onClick={undo} disabled={!canUndo} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md disabled:text-gray-600 disabled:cursor-not-allowed transition-colors" title="Undo (Ctrl+Z)"><ArrowUturnLeftIcon className="h-5 w-5" /></button>
-                <button onClick={redo} disabled={!canRedo} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md disabled:text-gray-600 disabled:cursor-not-allowed transition-colors" title="Redo (Ctrl+Y)"><ArrowUturnRightIcon className="h-5 w-5" /></button>
-                <button onClick={() => setIsCodePanelVisible(prev => !prev)} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md transition-colors" title="Toggle Code & Terminal Panel"><CommandLineIcon className="h-5 w-5" /></button>
                 
-                <div className="h-5 border-l border-gray-700"></div>
+                <div className="flex items-center gap-2 flex-wrap">
+                    <button onClick={undo} disabled={!canUndo} className="p-1 text-gray-300 hover:bg-gray-700 rounded-md disabled:text-gray-600 disabled:cursor-not-allowed transition-colors" title="Undo (Ctrl+Z)"><ArrowUturnLeftIcon className="h-4 w-4" /></button>
+                    <button onClick={redo} disabled={!canRedo} className="p-1 text-gray-300 hover:bg-gray-700 rounded-md disabled:text-gray-600 disabled:cursor-not-allowed transition-colors" title="Redo (Ctrl+Y)"><ArrowUturnRightIcon className="h-4 w-4" /></button>
+                    
+                    <div className="h-5 border-l border-gray-700"></div>
 
-                <button onClick={handleSetFolder} className="flex items-center gap-2 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded-md font-semibold transition-colors" title="Set Save Folder"><FolderOpenIcon className="h-4 w-4" />Folder</button>
-                <button onClick={handleLoadPipeline} className="flex items-center gap-2 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded-md font-semibold transition-colors" title="Load Pipeline"><FolderOpenIcon className="h-4 w-4" />Load</button>
-                <button onClick={handleSavePipeline} disabled={!isDirty} className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md font-semibold transition-colors ${!isDirty ? 'bg-gray-600 cursor-not-allowed opacity-50' : 'bg-gray-700 hover:bg-gray-600'}`} title="Save Pipeline">
-                    {saveButtonText === 'Save' ? <CodeBracketIcon className="h-4 w-4" /> : <CheckIcon className="h-4 w-4" />}
-                    {saveButtonText}
-                </button>
-                <button onClick={() => runSimulation()} className="flex items-center gap-2 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-500 rounded-md font-bold text-white transition-colors"><PlayIcon className="h-4 w-4" />Run All</button>
+                    <div className="flex items-center gap-1 px-1.5 py-1 border border-gray-600 rounded-md bg-gray-800/50">
+                        <button onClick={handleSetFolder} className="flex items-center gap-1.5 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded font-semibold transition-colors" title="Set Save Folder"><FolderOpenIcon className="h-3.5 w-3.5" />Folder</button>
+                        <button onClick={handleLoadPipeline} className="flex items-center gap-1.5 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded font-semibold transition-colors" title="Load Pipeline"><FolderOpenIcon className="h-3.5 w-3.5" />Load</button>
+                        <button onClick={handleSavePipeline} disabled={!isDirty} className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded font-semibold transition-colors ${!isDirty ? 'bg-gray-600 cursor-not-allowed opacity-50' : 'bg-gray-700 hover:bg-gray-600'}`} title="Save Pipeline">
+                            {saveButtonText === 'Save' ? <CodeBracketIcon className="h-3.5 w-3.5" /> : <CheckIcon className="h-3.5 w-3.5" />}
+                            {saveButtonText}
+                        </button>
+                    </div>
+                    <button onClick={() => runSimulation()} className="flex items-center gap-1 px-1.5 py-1 text-xs bg-green-600 hover:bg-green-500 rounded-md font-bold text-white transition-colors"><PlayIcon className="h-3.5 w-3.5" />Run All</button>
+                    <button onClick={() => setIsCodePanelVisible(prev => !prev)} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md transition-colors" title="Toggle Code & Terminal Panel"><CommandLineIcon className="h-5 w-5" /></button>
+                </div>
             </div>
         </header>
 
