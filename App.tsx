@@ -247,6 +247,7 @@ const App: React.FC = () => {
   const [isSampleMenuOpen, setIsSampleMenuOpen] = useState(false);
   const [isToolboxExpanded, setIsToolboxExpanded] = useState(false);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+  const [isSidebarVisible, setIsSidebarVisible] = useState(true);
 
   const setConnections = useCallback((value: React.SetStateAction<Connection[]>) => {
     _setConnections(value);
@@ -1924,6 +1925,7 @@ const App: React.FC = () => {
                 <div className="hidden md:block h-5 border-l border-gray-700"></div>
 
                 <div className="flex items-center gap-2 flex-wrap justify-center">
+                    <button onClick={() => setIsSidebarVisible(prev => !prev)} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md transition-colors" title="Toggle Module Sidebar"><Bars3Icon className="h-5 w-5" /></button>
                     <button onClick={undo} disabled={!canUndo} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md disabled:text-gray-600 disabled:cursor-not-allowed transition-colors" title="Undo (Ctrl+Z)"><ArrowUturnLeftIcon className="h-5 w-5" /></button>
                     <button onClick={redo} disabled={!canRedo} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md disabled:text-gray-600 disabled:cursor-not-allowed transition-colors" title="Redo (Ctrl+Y)"><ArrowUturnRightIcon className="h-5 w-5" /></button>
                     <button onClick={() => setIsCodePanelVisible(prev => !prev)} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md transition-colors" title="Toggle Code & Terminal Panel"><CommandLineIcon className="h-5 w-5" /></button>
@@ -1940,6 +1942,7 @@ const App: React.FC = () => {
         </header>
 
         <div className="flex-grow min-h-0 flex flex-row">
+            {isSidebarVisible && (
             <div className="flex-shrink-0 bg-gray-800 border-r border-gray-700 z-10 p-2 relative w-64 overflow-y-auto scrollbar-hide">
                 <div className="flex flex-col gap-4">
                 {categorizedModules.map((category, index) => {
@@ -1994,6 +1997,7 @@ const App: React.FC = () => {
                 })}
                 </div>
             </div>
+            )}
             <main ref={canvasContainerRef} className="flex-grow h-full canvas-bg relative overflow-hidden">
                 <Canvas 
                   modules={modules}
