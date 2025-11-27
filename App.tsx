@@ -1880,23 +1880,29 @@ const App: React.FC = () => {
 
   return (
     <div className="bg-gray-900 text-white h-screen w-full flex flex-col overflow-hidden">
-        <header className="flex flex-col md:flex-row items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-700 flex-shrink-0 z-20 gap-y-3 md:gap-y-0">
-            <div className="flex items-center justify-between w-full md:w-auto gap-4">
+        <header className="flex flex-col px-4 py-2 bg-gray-900 border-b border-gray-700 flex-shrink-0 z-20 gap-2">
+            {/* 최상단: 제목과 모델 이름 */}
+            <div className="flex items-center gap-2 flex-wrap">
                 <div className="flex items-center gap-2">
-                    <LogoIcon className="h-6 w-6 text-blue-400" />
+                    <LogoIcon className="h-6 w-6 text-blue-400 flex-shrink-0" />
                     <h1 className="text-xl font-bold text-blue-300 tracking-wide whitespace-nowrap">Life Matrix Flow</h1>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
                     <span className="text-gray-600">|</span>
                     {isEditingProductName ? (
-                        <input value={productName} onChange={e => setProductName(e.target.value)} onBlur={() => setIsEditingProductName(false)} onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setIsEditingProductName(false); }} className="bg-gray-800 text-lg font-semibold text-white px-2 py-1 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 w-40" autoFocus />
+                        <input value={productName} onChange={e => setProductName(e.target.value)} onBlur={() => setIsEditingProductName(false)} onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setIsEditingProductName(false); }} className="bg-gray-800 text-lg font-semibold text-white px-2 py-1 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 w-full max-w-md" autoFocus />
                     ) : (
-                        <h2 onClick={() => setIsEditingProductName(true)} className="text-lg font-semibold text-gray-300 hover:bg-gray-700 px-2 py-1 rounded-md cursor-pointer truncate max-w-[150px] md:max-w-xs" title="Click to edit product name">{productName}</h2>
+                        <h2 onClick={() => setIsEditingProductName(true)} className="text-lg font-semibold text-gray-300 hover:bg-gray-700 px-2 py-1 rounded-md cursor-pointer truncate max-w-md" title="Click to edit product name">{productName}</h2>
                     )}
                 </div>
             </div>
             
-            <div className="flex items-center gap-4 flex-wrap justify-center md:justify-end w-full md:w-auto">
+            {/* 버튼들: Samples, Load, Save 등 */}
+            <div className="flex items-center gap-2 flex-wrap">
+                <button onClick={() => setIsSidebarVisible(prev => !prev)} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md transition-colors" title="Toggle Module Sidebar"><Bars3Icon className="h-5 w-5" /></button>
+
+                <div className="h-5 border-l border-gray-700"></div>
+
                 <div className="relative">
                     <button 
                         onClick={() => setIsSampleMenuOpen(!isSampleMenuOpen)} 
@@ -1907,7 +1913,7 @@ const App: React.FC = () => {
                         Samples
                     </button>
                     {isSampleMenuOpen && (
-                        <div className="absolute top-full left-0 md:left-auto md:right-0 mt-2 w-48 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 overflow-hidden">
+                        <div className="absolute top-full left-0 mt-2 w-48 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 overflow-hidden">
                             <div className="p-2 text-xs font-bold text-gray-500 uppercase">Predefined Models</div>
                             {PREDEFINED_SAMPLES.map((sample, idx) => (
                                 <button
@@ -1921,23 +1927,19 @@ const App: React.FC = () => {
                         </div>
                     )}
                 </div>
+                <button onClick={undo} disabled={!canUndo} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md disabled:text-gray-600 disabled:cursor-not-allowed transition-colors" title="Undo (Ctrl+Z)"><ArrowUturnLeftIcon className="h-5 w-5" /></button>
+                <button onClick={redo} disabled={!canRedo} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md disabled:text-gray-600 disabled:cursor-not-allowed transition-colors" title="Redo (Ctrl+Y)"><ArrowUturnRightIcon className="h-5 w-5" /></button>
+                <button onClick={() => setIsCodePanelVisible(prev => !prev)} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md transition-colors" title="Toggle Code & Terminal Panel"><CommandLineIcon className="h-5 w-5" /></button>
+                
+                <div className="h-5 border-l border-gray-700"></div>
 
-                <div className="hidden md:block h-5 border-l border-gray-700"></div>
-
-                <div className="flex items-center gap-2 flex-wrap justify-center">
-                    <button onClick={() => setIsSidebarVisible(prev => !prev)} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md transition-colors" title="Toggle Module Sidebar"><Bars3Icon className="h-5 w-5" /></button>
-                    <button onClick={undo} disabled={!canUndo} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md disabled:text-gray-600 disabled:cursor-not-allowed transition-colors" title="Undo (Ctrl+Z)"><ArrowUturnLeftIcon className="h-5 w-5" /></button>
-                    <button onClick={redo} disabled={!canRedo} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md disabled:text-gray-600 disabled:cursor-not-allowed transition-colors" title="Redo (Ctrl+Y)"><ArrowUturnRightIcon className="h-5 w-5" /></button>
-                    <button onClick={() => setIsCodePanelVisible(prev => !prev)} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md transition-colors" title="Toggle Code & Terminal Panel"><CommandLineIcon className="h-5 w-5" /></button>
-                    <span className="hidden md:block h-5 border-l border-gray-700"></span>
-                    <button onClick={handleSetFolder} className="flex items-center gap-2 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded-md font-semibold transition-colors" title="Set Save Folder"><FolderOpenIcon className="h-4 w-4" />Folder</button>
-                    <button onClick={handleLoadPipeline} className="flex items-center gap-2 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded-md font-semibold transition-colors" title="Load Pipeline"><FolderOpenIcon className="h-4 w-4" />Load</button>
-                    <button onClick={handleSavePipeline} disabled={!isDirty} className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md font-semibold transition-colors ${!isDirty ? 'bg-gray-600 cursor-not-allowed opacity-50' : 'bg-gray-700 hover:bg-gray-600'}`} title="Save Pipeline">
-                        {saveButtonText === 'Save' ? <CodeBracketIcon className="h-4 w-4" /> : <CheckIcon className="h-4 w-4" />}
-                        {saveButtonText}
-                    </button>
-                    <button onClick={() => runSimulation()} className="flex items-center gap-2 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-500 rounded-md font-bold text-white transition-colors"><PlayIcon className="h-4 w-4" />Run All</button>
-                </div>
+                <button onClick={handleSetFolder} className="flex items-center gap-2 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded-md font-semibold transition-colors" title="Set Save Folder"><FolderOpenIcon className="h-4 w-4" />Folder</button>
+                <button onClick={handleLoadPipeline} className="flex items-center gap-2 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded-md font-semibold transition-colors" title="Load Pipeline"><FolderOpenIcon className="h-4 w-4" />Load</button>
+                <button onClick={handleSavePipeline} disabled={!isDirty} className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md font-semibold transition-colors ${!isDirty ? 'bg-gray-600 cursor-not-allowed opacity-50' : 'bg-gray-700 hover:bg-gray-600'}`} title="Save Pipeline">
+                    {saveButtonText === 'Save' ? <CodeBracketIcon className="h-4 w-4" /> : <CheckIcon className="h-4 w-4" />}
+                    {saveButtonText}
+                </button>
+                <button onClick={() => runSimulation()} className="flex items-center gap-2 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-500 rounded-md font-bold text-white transition-colors"><PlayIcon className="h-4 w-4" />Run All</button>
             </div>
         </header>
 
