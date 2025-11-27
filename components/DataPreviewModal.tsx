@@ -1,0 +1,440 @@
+
+import React, { useState, useMemo, useEffect } from 'react';
+import { CanvasModule, DataPreview, ScenarioRunnerOutput, PremiumComponentOutput } from '../types';
+import { XCircleIcon, ChevronUpIcon, ChevronDownIcon, ArrowDownTrayIcon } from './icons';
+
+interface DataPreviewModalProps {
+    module: CanvasModule;
+    projectName: string;
+    onClose: () => void;
+}
+
+type SortConfig = {
+    key: string;
+    direction: 'ascending' | 'descending';
+} | null;
+
+const ScatterPlot: React.FC<{ rows: Record<string, any>[], xCol: string, yCol1: string, yCol2: string | null }> = ({ rows, xCol, yCol1, yCol2 }) => {
+    const dataPoints1 = useMemo(() => {
+        return rows
+            .map(r => ({ x: Number(r[xCol]), y: Number(r[yCol1]) }))
+            .filter(p => !isNaN(p.x) && !isNaN(p.y));
+    }, [rows, xCol, yCol1]);
+
+    const dataPoints2 = useMemo(() => {
+        if (!yCol2) return [];
+        return rows
+            .map(r => ({ x: Number(r[xCol]), y: Number(r[yCol2]) }))
+            .filter(p => !isNaN(p.x) && !isNaN(p.y));
+    }, [rows, xCol, yCol2]);
+
+    if (dataPoints1.length === 0 && dataPoints2.length === 0) {
+        return <div className="flex items-center justify-center h-full text-gray-400">No valid data points for scatter plot.</div>;
+    }
+
+    const margin = { top: 40, right: 20, bottom: 40, left: 60 };
+    const width = 600;
+    const height = 400;
+
+    const allPoints = [...dataPoints1, ...dataPoints2];
+    const xMin = Math.min(...allPoints.map(d => d.x));
+    const xMax = Math.max(...allPoints.map(d => d.x));
+    const yMin = Math.min(...allPoints.map(d => d.y));
+    const yMax = Math.max(...allPoints.map(d => d.y));
+
+    const xScale = (x: number) => margin.left + ((x - xMin) / (xMax - xMin || 1)) * (width - margin.left - margin.right);
+    const yScale = (y: number) => height - margin.bottom - ((y - yMin) / (yMax - yMin || 1)) * (height - margin.top - margin.bottom);
+
+    const getTicks = (min: number, max: number, count: number) => {
+        if (min === max) return [min];
+        const ticks = [];
+        const range = max - min;
+        if (range === 0) return [min];
+        const step = range / (count - 1);
+        for (let i = 0; i < count; i++) {
+            ticks.push(min + i * step);
+        }
+        return ticks;
+    };
+    
+    const xTicks = getTicks(xMin, xMax, 5);
+    const yTicks = getTicks(yMin, yMax, 5);
+
+    return (
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full">
+             <g transform={`translate(${margin.left}, 15)`} className="text-gray-600">
+                <circle cx="0" cy="0" r="5" fill="#3b82f6" />
+                <text x="10" y="4" fontSize="12">{yCol1}</text>
+                {yCol2 && (
+                    <>
+                        <circle cx="120" cy="0" r="5" fill="#a855f7" />
+                        <text x="130" y="4" fontSize="12">{yCol2}</text>
+                    </>
+                )}
+            </g>
+
+            <line x1={margin.left} y1={height - margin.bottom} x2={width - margin.right} y2={height - margin.bottom} stroke="currentColor" strokeWidth="1" className="text-gray-300" />
+            <line x1={margin.left} y1={margin.top} x2={margin.left} y2={height - margin.bottom} stroke="currentColor" strokeWidth="1" className="text-gray-300" />
+            {xTicks.map((tick, i) => (
+                <g key={`x-${i}`} transform={`translate(${xScale(tick)}, ${height - margin.bottom})`}>
+                    <line y2="5" stroke="currentColor" strokeWidth="1" className="text-gray-300" />
+                    <text y="20" textAnchor="middle" fill="currentColor" fontSize="10" className="text-gray-500">{tick.toFixed(0)}</text>
+                </g>
+            ))}
+            <text x={width/2} y={height - 5} textAnchor="middle" fill="currentColor" fontSize="12" fontWeight="bold" className="text-gray-600">{xCol}</text>
+            {yTicks.map((tick, i) => (
+                <g key={`y-${i}`} transform={`translate(${margin.left}, ${yScale(tick)})`}>
+                    <line x2="-5" stroke="currentColor" strokeWidth="1" className="text-gray-300" />
+                    <text x="-10" y="3" textAnchor="end" fill="currentColor" fontSize="10" className="text-gray-500">{tick.toExponential(1)}</text>
+                </g>
+            ))}
+            <text transform={`translate(${20}, ${height/2}) rotate(-90)`} textAnchor="middle" fill="currentColor" fontSize="12" fontWeight="bold" className="text-gray-600">Value</text>
+            
+            {dataPoints1.map((p, i) => (
+                <circle key={`p1-${i}`} cx={xScale(p.x)} cy={yScale(p.y)} r="3" fill="#3b82f6" opacity="0.7" />
+            ))}
+             {yCol2 && dataPoints2.map((p, i) => (
+                <circle key={`p2-${i}`} cx={xScale(p.x)} cy={yScale(p.y)} r="3" fill="#a855f7" opacity="0.7" />
+            ))}
+        </svg>
+    );
+};
+
+export const DataPreviewModal: React.FC<DataPreviewModalProps> = ({ module, projectName, onClose }) => {
+    const getPreviewData = (): DataPreview | ScenarioRunnerOutput | null => {
+        if (!module.outputData) return null;
+        if (module.outputData.type === 'DataPreview' || module.outputData.type === 'ScenarioRunnerOutput') return module.outputData;
+        if (module.outputData.type === 'KMeansOutput' || module.outputData.type === 'HierarchicalClusteringOutput' || module.outputData.type === 'DBSCANOutput') {
+            return module.outputData.clusterAssignments;
+        }
+        if (module.outputData.type === 'PCAOutput') {
+            return module.outputData.transformedData;
+        }
+        return null;
+    };
+    
+    const data = getPreviewData();
+    const [sortConfig, setSortConfig] = useState<SortConfig>(null);
+    const [activeTab, setActiveTab] = useState<'table' | 'visualization'>('table');
+    
+    // --- Special handling for PremiumComponentOutput ---
+    if (module.outputData?.type === 'PremiumComponentOutput') {
+        const { nnxResults, sumxValue, mxResults } = module.outputData;
+        return (
+             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={onClose}>
+                <div className="bg-white text-gray-900 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                    <header className="flex items-center justify-between p-4 border-b border-gray-200 flex-shrink-0">
+                        <h2 className="text-xl font-bold text-gray-800">Premium Component Output: {module.name}</h2>
+                        <button onClick={onClose} className="text-gray-500 hover:text-gray-800">
+                            <XCircleIcon className="w-6 h-6" />
+                        </button>
+                    </header>
+                    <main className="flex-grow p-6 overflow-auto space-y-8">
+                         {/* NNX Section */}
+                        <div>
+                            <h3 className="text-lg font-semibold text-gray-700 mb-3 border-b pb-1">NNX Breakdown (Annuity Factors)</h3>
+                            <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="py-2 px-4 font-semibold text-gray-600">Component</th>
+                                            <th className="py-2 px-4 font-semibold text-gray-600 text-right">Value</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {Object.entries(nnxResults).map(([key, value]) => (
+                                            <tr key={key} className="border-b border-gray-200 last:border-b-0">
+                                                <td className="py-2 px-4 font-medium text-gray-700">{key}</td>
+                                                <td className="py-2 px-4 font-mono text-right text-gray-700">{new Intl.NumberFormat(undefined, { maximumFractionDigits: 5 }).format(Number(value))}</td>
+                                            </tr>
+                                        ))}
+                                        {Object.keys(nnxResults).length === 0 && <tr><td colSpan={2} className="py-4 text-center text-gray-500">No NNX results available.</td></tr>}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* SUMX Section */}
+                        <div>
+                            <h3 className="text-lg font-semibold text-gray-700 mb-3 border-b pb-1">Mx & SUMX Breakdown (Benefit PV)</h3>
+                            <div className="overflow-x-auto border border-gray-200 rounded-lg mb-4">
+                                 <table className="w-full text-sm text-left">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="py-2 px-4 font-semibold text-gray-600">Component (Mx)</th>
+                                            <th className="py-2 px-4 font-semibold text-gray-600 text-right">PV Value</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {Object.entries(mxResults).map(([key, value]) => (
+                                            <tr key={key} className="border-b border-gray-200 last:border-b-0">
+                                                <td className="py-2 px-4 font-medium text-gray-700">{key}</td>
+                                                <td className="py-2 px-4 font-mono text-right text-gray-700">{new Intl.NumberFormat(undefined, { maximumFractionDigits: 5 }).format(Number(value))}</td>
+                                            </tr>
+                                        ))}
+                                         {Object.keys(mxResults).length === 0 && <tr><td colSpan={2} className="py-4 text-center text-gray-500">No Mx results available.</td></tr>}
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <div className="flex justify-between items-center p-4 bg-blue-50 rounded-lg border border-blue-100">
+                                <span className="text-lg font-bold text-blue-800">Total SUMX</span>
+                                <span className="text-2xl font-mono font-black text-blue-700">{new Intl.NumberFormat(undefined, { maximumFractionDigits: 5 }).format(sumxValue)}</span>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+             </div>
+        )
+    }
+
+    // --- Standard Data Preview ---
+    const columns = data?.columns || [];
+    const rows = data?.rows || [];
+
+    const ageColumnName = useMemo(() => 
+        columns.find(c => c.name.toLowerCase() === 'age' || c.name.toLowerCase() === 'entryage')?.name, 
+    [columns]);
+
+    const visYAxisOptions = useMemo(() => 
+        columns
+            .filter(c => c.type === 'number' && c.name.toLowerCase() !== 'age' && c.name.toLowerCase() !== 'sex' && c.name.toLowerCase() !== 'gender' && c.name.toLowerCase() !== 'entryage')
+            .map(c => c.name),
+    [columns]);
+
+    const [visYAxisCol, setVisYAxisCol] = useState<string | null>(null);
+    const [visYAxisCol2, setVisYAxisCol2] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (activeTab === 'visualization' && !visYAxisCol && visYAxisOptions.length > 0) {
+            setVisYAxisCol(visYAxisOptions[0]);
+        }
+    }, [activeTab, visYAxisCol, visYAxisOptions]);
+
+    const sortedRows = useMemo(() => {
+        let sortableItems = [...rows];
+        if (sortConfig !== null) {
+            sortableItems.sort((a, b) => {
+                const valA = a[sortConfig.key];
+                const valB = b[sortConfig.key];
+                if (valA === null || valA === undefined) return 1;
+                if (valB === null || valB === undefined) return -1;
+                if (valA < valB) {
+                    return sortConfig.direction === 'ascending' ? -1 : 1;
+                }
+                if (valA > valB) {
+                    return sortConfig.direction === 'ascending' ? 1 : -1;
+                }
+                return 0;
+            });
+        }
+        return sortableItems;
+    }, [rows, sortConfig]);
+
+    const requestSort = (key: string) => {
+        let direction: 'ascending' | 'descending' = 'ascending';
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
+            direction = 'descending';
+        }
+        setSortConfig({ key, direction });
+    };
+
+    const handleDownloadCSV = () => {
+        if (!data || !data.columns || !data.rows) return;
+        const header = data.columns.map(c => c.name).join(',');
+        const rows = data.rows.map(row => 
+            data.columns.map(col => {
+                const val = row[col.name];
+                return val === null || val === undefined ? '' : String(val);
+            }).join(',')
+        ).join('\n');
+        const csvContent = `data:text/csv;charset=utf-8,${header}\n${rows}`;
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `${module.name.replace(/\s+/g, '_')}_data.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+    
+    if (!data) {
+        return (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={onClose}>
+                <div className="bg-white p-6 rounded-lg shadow-xl" onClick={e => e.stopPropagation()}>
+                    <h3 className="text-lg font-bold">No Data Available</h3>
+                    <p>The selected module has no previewable data.</p>
+                </div>
+            </div>
+        );
+    }
+    
+    return (
+        <div 
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            onClick={onClose}
+        >
+            <div 
+                className="bg-white text-gray-900 rounded-lg shadow-xl w-full max-w-7xl max-h-[90vh] flex flex-col"
+                onClick={e => e.stopPropagation()}
+            >
+                <header className="flex items-center justify-between p-4 border-b border-gray-200 flex-shrink-0">
+                    <h2 className="text-xl font-bold text-gray-800">Data Preview: {module.name}</h2>
+                    <div className="flex items-center gap-2">
+                        <button onClick={handleDownloadCSV} className="text-gray-500 hover:text-gray-800 p-1 rounded hover:bg-gray-100" title="Download CSV">
+                             <ArrowDownTrayIcon className="w-6 h-6" />
+                        </button>
+                        <button onClick={onClose} className="text-gray-500 hover:text-gray-800">
+                            <XCircleIcon className="w-6 h-6" />
+                        </button>
+                    </div>
+                </header>
+                <main className="flex-grow p-4 overflow-auto flex flex-col gap-4">
+                    <div className="flex-shrink-0 border-b border-gray-200">
+                        <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+                            <button
+                                onClick={() => setActiveTab('table')}
+                                className={`${
+                                    activeTab === 'table'
+                                        ? 'border-indigo-500 text-indigo-600'
+                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+                            >
+                                Data Table
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('visualization')}
+                                className={`${
+                                    activeTab === 'visualization'
+                                        ? 'border-indigo-500 text-indigo-600'
+                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+                            >
+                                Visualization
+                            </button>
+                        </nav>
+                    </div>
+
+                    {activeTab === 'table' && (
+                        <>
+                            <div className="flex justify-between items-center flex-shrink-0">
+                                <div className="text-sm text-gray-600">
+                                    Showing {Math.min(rows.length, 1000)} of {data.totalRowCount.toLocaleString()} rows and {columns.length} columns.
+                                </div>
+                            </div>
+                            <div className="flex-grow flex gap-4 overflow-hidden">
+                                <div className="overflow-auto border border-gray-200 rounded-lg w-full">
+                                    <table className="min-w-full text-sm text-left">
+                                        <thead className="bg-gray-50 sticky top-0">
+                                            <tr>
+                                                {columns.map(col => (
+                                                    <th 
+                                                        key={col.name} 
+                                                        className="py-2 px-3 font-semibold text-gray-600 cursor-pointer hover:bg-gray-100"
+                                                        onClick={() => requestSort(col.name)}
+                                                    >
+                                                        <div className="flex items-center gap-1">
+                                                            <span className="truncate" title={col.name}>{col.name}</span>
+                                                            {sortConfig?.key === col.name && (sortConfig.direction === 'ascending' ? <ChevronUpIcon className="w-3 h-3" /> : <ChevronDownIcon className="w-3 h-3" />)}
+                                                        </div>
+                                                    </th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {sortedRows.map((row, rowIndex) => (
+                                                <tr key={rowIndex} className="border-b border-gray-200 last:border-b-0">
+                                                    {columns.map(col => {
+                                                        const val = row[col.name];
+                                                        let displayVal: React.ReactNode = val;
+
+                                                        if (val === null || val === undefined) {
+                                                            displayVal = <i className="text-gray-400">null</i>;
+                                                        } else if (typeof val === 'number') {
+                                                            displayVal = new Intl.NumberFormat(undefined, { maximumFractionDigits: 5 }).format(val);
+                                                        } else {
+                                                            displayVal = String(val);
+                                                        }
+
+                                                        return (
+                                                            <td 
+                                                                key={col.name} 
+                                                                className="py-1.5 px-3 font-mono truncate"
+                                                                title={String(val)}
+                                                            >
+                                                                {displayVal}
+                                                            </td>
+                                                        );
+                                                    })}
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </>
+                    )}
+
+                    {activeTab === 'visualization' && (
+                        <div className="flex-grow flex flex-col items-center justify-start p-4 gap-4">
+                            {!ageColumnName ? (
+                                <div className="flex items-center justify-center h-full">
+                                    <p className="text-gray-500">An 'Age' or 'entryAge' column is required for visualization.</p>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="flex-shrink-0 flex items-center gap-2 self-start flex-wrap">
+                                        <label className="font-semibold text-gray-700">X-Axis:</label>
+                                        <span className="p-2 border border-gray-200 rounded-md bg-gray-100 text-gray-600">{ageColumnName}</span>
+                                        <label htmlFor="y-axis-select-1" className="font-semibold text-gray-700 ml-4">Y-Axis 1:</label>
+                                        <select
+                                            id="y-axis-select-1"
+                                            value={visYAxisCol || ''}
+                                            onChange={e => {
+                                                const newValue = e.target.value;
+                                                setVisYAxisCol(newValue);
+                                                if (newValue === visYAxisCol2) {
+                                                    setVisYAxisCol2(null);
+                                                }
+                                            }}
+                                            className="p-2 border border-gray-300 rounded-md"
+                                        >
+                                            <option value="" disabled>Select a column</option>
+                                            {visYAxisOptions.map(col => (
+                                                <option key={col} value={col}>{col}</option>
+                                            ))}
+                                        </select>
+                                        <label htmlFor="y-axis-select-2" className="font-semibold text-gray-700 ml-4">Y-Axis 2 (Optional):</label>
+                                        <select
+                                            id="y-axis-select-2"
+                                            value={visYAxisCol2 || ''}
+                                            onChange={e => setVisYAxisCol2(e.target.value || null)}
+                                            className="p-2 border border-gray-300 rounded-md"
+                                            disabled={!visYAxisCol}
+                                        >
+                                            <option value="">None</option>
+                                            {visYAxisOptions
+                                                .filter(col => col !== visYAxisCol)
+                                                .map(col => (
+                                                    <option key={col} value={col}>{col}</option>
+                                                ))}
+                                        </select>
+                                    </div>
+                                    <div className="w-full flex-grow min-h-0">
+                                        {visYAxisCol ? (
+                                            <ScatterPlot rows={rows} xCol={ageColumnName} yCol1={visYAxisCol} yCol2={visYAxisCol2} />
+                                        ) : (
+                                            <div className="flex items-center justify-center h-full text-gray-500">
+                                                <p>Select a column for the Y-axis to visualize against {ageColumnName}.</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
+                </main>
+            </div>
+        </div>
+    );
+};
