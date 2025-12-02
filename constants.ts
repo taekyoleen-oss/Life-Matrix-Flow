@@ -3,11 +3,11 @@ import { ModuleType, CanvasModule, ModuleStatus } from './types';
 import { DatabaseIcon, TableCellsIcon, DocumentTextIcon, CalculatorIcon, PriceTagIcon, CheckBadgeIcon, QueueListIcon, AdjustmentsHorizontalIcon, ClipboardDocumentListIcon, TagIcon, BanknotesIcon } from './components/icons';
 
 export const TOOLBOX_MODULES = [
+  { type: ModuleType.DefinePolicyInfo, name: 'Define Policy Info', icon: DocumentTextIcon, description: "Sets the basic information for the insurance product, such as age, gender, and terms." },
   { type: ModuleType.LoadData, name: 'Load Risk Rates', icon: DatabaseIcon, description: "Loads a risk rate table (e.g., mortality rates) from a CSV file." },
+  { type: ModuleType.SelectRiskRates, name: 'Age Gender Matching', icon: TableCellsIcon, description: "Selects rates for the policy term and calculates present value factors." },
   { type: ModuleType.SelectData, name: 'Select Data', icon: TableCellsIcon, description: "Selects or removes columns from the data." },
   { type: ModuleType.RateModifier, name: 'Rate Modifier', icon: AdjustmentsHorizontalIcon, description: "Creates new risk rate columns by applying formulas to existing columns." },
-  { type: ModuleType.DefinePolicyInfo, name: 'Define Policy Info', icon: DocumentTextIcon, description: "Sets the basic information for the insurance product, such as age, gender, and terms." },
-  { type: ModuleType.SelectRiskRates, name: 'Select Rates', icon: TableCellsIcon, description: "Selects rates for the policy term and calculates present value factors." },
   { type: ModuleType.CalculateSurvivors, name: 'Survivors Calculator', icon: CalculatorIcon, description: "Calculates the number of survivors over time based on selected risk rates." },
   { type: ModuleType.ClaimsCalculator, name: 'Claims Calculator', icon: CalculatorIcon, description: "Calculates claim amounts (dx) and commutation functions (Cx) based on survivors (lx), risk rates, and present value factors." },
   { type: ModuleType.NxMxCalculator, name: 'Nx Mx Calculator', icon: CalculatorIcon, description: "Generates commutation functions Nx and Mx by summing Dx and Cx, with advanced options for Mx." },

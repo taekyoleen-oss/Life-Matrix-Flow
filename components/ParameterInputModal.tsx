@@ -14,17 +14,17 @@ interface ParameterInputModalProps {
     folderHandle: FileSystemDirectoryHandle | null;
 }
 
-const PropertyInput: React.FC<{ label: string; value: any; onChange: (value: any) => void; type?: string; step?: string, disabled?: boolean, placeholder?: string }> = ({ label, value, onChange, type = "text", step, disabled = false, placeholder }) => (
+export const PropertyInput: React.FC<{ label: string; value: any; onChange: (value: any) => void; type?: string; step?: string, disabled?: boolean, placeholder?: string, compact?: boolean }> = ({ label, value, onChange, type = "text", step, disabled = false, placeholder, compact = false }) => (
     <div>
-        <label className="block text-sm text-gray-400 mb-1">{label}</label>
-        <input type={type} value={value} step={step} onChange={e => onChange(type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value)} disabled={disabled} placeholder={placeholder} className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-800 disabled:text-gray-500" />
+        <label className={`block ${compact ? 'text-xs' : 'text-sm'} text-gray-400 mb-1`}>{label}</label>
+        <input type={type} value={value} step={step} onChange={e => onChange(type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value)} disabled={disabled} placeholder={placeholder} className={`w-full bg-gray-700 border border-gray-600 rounded ${compact ? 'px-2 py-1 text-xs' : 'px-2 py-1.5 text-sm'} focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-800 disabled:text-gray-500`} />
     </div>
 );
 
-const PropertySelect: React.FC<{ label: string; value: any; onChange: (value: string) => void; options: {label: string, value: string}[] | string[], placeholder?: string }> = ({ label, value, onChange, options, placeholder }) => (
+export const PropertySelect: React.FC<{ label: string; value: any; onChange: (value: string) => void; options: {label: string, value: string}[] | string[], placeholder?: string, compact?: boolean }> = ({ label, value, onChange, options, placeholder, compact = false }) => (
     <div>
-        <label className="block text-sm text-gray-400 mb-1">{label}</label>
-        <select value={value} onChange={e => onChange(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <label className={`block ${compact ? 'text-xs' : 'text-sm'} text-gray-400 mb-1`}>{label}</label>
+        <select value={value} onChange={e => onChange(e.target.value)} className={`w-full bg-gray-700 border border-gray-600 rounded ${compact ? 'px-2 py-1 text-xs' : 'px-2 py-1.5 text-sm'} focus:outline-none focus:ring-2 focus:ring-blue-500`}>
             {placeholder && <option value="" disabled>{placeholder}</option>}
             {options.map(opt => {
                 const optionLabel = typeof opt === 'string' ? opt : opt.label;
@@ -51,7 +51,7 @@ const ToggleSwitch: React.FC<{ checked: boolean; onChange: (checked: boolean) =>
     </div>
 );
 
-const getConnectedDataSource = (moduleId: string, portName: string, allModules: CanvasModule[], allConnections: Connection[]): DataPreview | undefined => {
+export const getConnectedDataSource = (moduleId: string, portName: string, allModules: CanvasModule[], allConnections: Connection[]): DataPreview | undefined => {
     const inputConnection = allConnections.find(c => c.to.moduleId === moduleId && c.to.portName === portName);
     if (!inputConnection) return undefined;
     const sourceModule = allModules.find(m => m.id === inputConnection.from.moduleId);
@@ -59,7 +59,7 @@ const getConnectedDataSource = (moduleId: string, portName: string, allModules: 
     return undefined;
 };
 
-const getGlobalPolicyInfoFromCanvas = (allModules: CanvasModule[]): PolicyInfoOutput | undefined => {
+export const getGlobalPolicyInfoFromCanvas = (allModules: CanvasModule[]): PolicyInfoOutput | undefined => {
     const policyModule = allModules.find(m => m.type === ModuleType.DefinePolicyInfo);
     if (policyModule?.outputData?.type === 'PolicyInfoOutput') {
         return policyModule.outputData;
@@ -80,7 +80,7 @@ const getGlobalPolicyInfoFromCanvas = (allModules: CanvasModule[]): PolicyInfoOu
 };
 
 
-const getConnectedPremiumComponents = (moduleId: string, portName: string, allModules: CanvasModule[], allConnections: Connection[]): PremiumComponentOutput | undefined => {
+export const getConnectedPremiumComponents = (moduleId: string, portName: string, allModules: CanvasModule[], allConnections: Connection[]): PremiumComponentOutput | undefined => {
     const inputConnection = allConnections.find(c => c.to.moduleId === moduleId && c.to.portName === portName);
     if (!inputConnection) return undefined;
     const sourceModule = allModules.find(m => m.id === inputConnection.from.moduleId);
@@ -88,7 +88,7 @@ const getConnectedPremiumComponents = (moduleId: string, portName: string, allMo
     return undefined;
 };
 
-const getConnectedAdditionalVariables = (moduleId: string, portName: string, allModules: CanvasModule[], allConnections: Connection[]): AdditionalVariablesOutput | undefined => {
+export const getConnectedAdditionalVariables = (moduleId: string, portName: string, allModules: CanvasModule[], allConnections: Connection[]): AdditionalVariablesOutput | undefined => {
     const inputConnection = allConnections.find(c => c.to.moduleId === moduleId && c.to.portName === portName);
     if (!inputConnection) return undefined;
     const sourceModule = allModules.find(m => m.id === inputConnection.from.moduleId);
@@ -96,7 +96,7 @@ const getConnectedAdditionalVariables = (moduleId: string, portName: string, all
     return undefined;
 };
 
-const getConnectedNetPremiumOutput = (moduleId: string, portName: string, allModules: CanvasModule[], allConnections: Connection[]): NetPremiumOutput | undefined => {
+export const getConnectedNetPremiumOutput = (moduleId: string, portName: string, allModules: CanvasModule[], allConnections: Connection[]): NetPremiumOutput | undefined => {
     const inputConnection = allConnections.find(c => c.to.moduleId === moduleId && c.to.portName === portName);
     if (!inputConnection) return undefined;
     const sourceModule = allModules.find(m => m.id === inputConnection.from.moduleId);
@@ -104,10 +104,11 @@ const getConnectedNetPremiumOutput = (moduleId: string, portName: string, allMod
     return undefined;
 };
 
-const DefinePolicyInfoParams: React.FC<{
+export const DefinePolicyInfoParams: React.FC<{
     parameters: Record<string, any>;
     onParametersChange: (newParams: Record<string, any>) => void;
-}> = ({ parameters, onParametersChange }) => {
+    compact?: boolean;
+}> = ({ parameters, onParametersChange, compact = false }) => {
     const { entryAge, gender, policyTerm, paymentTerm, interestRate, maturityAge } = parameters;
 
     const handleChange = (field: string, value: any) => {
@@ -115,49 +116,55 @@ const DefinePolicyInfoParams: React.FC<{
     };
 
     return (
-        <div className="space-y-4">
+        <div className={compact ? "space-y-2" : "space-y-4"}>
             <PropertyInput 
                 label="Entry Age" 
                 type="number" 
                 value={entryAge} 
-                onChange={v => handleChange('entryAge', v)} 
+                onChange={v => handleChange('entryAge', v)}
+                compact={compact}
             />
             <PropertySelect 
                 label="Gender" 
                 value={gender} 
                 onChange={v => handleChange('gender', v)} 
                 options={['Male', 'Female']}
+                compact={compact}
             />
-            <div className="grid grid-cols-2 gap-4">
+            <div className={`grid grid-cols-2 ${compact ? 'gap-2' : 'gap-4'}`}>
                 <PropertyInput 
                     label="Policy Term (years)" 
                     type="number" 
                     value={policyTerm} 
                     onChange={v => handleChange('policyTerm', v)} 
                     disabled={!!maturityAge && maturityAge > 0}
+                    compact={compact}
                 />
                 <PropertyInput 
                     label="Maturity Age (Optional)" 
                     type="number" 
                     value={maturityAge || ''} 
                     onChange={v => handleChange('maturityAge', v)}
-                    placeholder="e.g. 60" 
+                    placeholder="e.g. 60"
+                    compact={compact}
                 />
             </div>
-            <p className="text-xs text-gray-500 -mt-2">If Maturity Age is set, Policy Term will be calculated as (Maturity Age - Entry Age).</p>
+            <p className={`${compact ? 'text-[10px]' : 'text-xs'} text-gray-500 -mt-2`}>If Maturity Age is set, Policy Term will be calculated as (Maturity Age - Entry Age).</p>
 
             <PropertyInput 
                 label="Payment Term (years)" 
                 type="number" 
                 value={paymentTerm} 
-                onChange={v => handleChange('paymentTerm', v)} 
+                onChange={v => handleChange('paymentTerm', v)}
+                compact={compact}
             />
             <PropertyInput 
                 label="Interest Rate (%)" 
                 type="number" 
                 step="0.1"
                 value={interestRate} 
-                onChange={v => handleChange('interestRate', v)} 
+                onChange={v => handleChange('interestRate', v)}
+                compact={compact}
             />
         </div>
     );
@@ -169,7 +176,8 @@ const SelectRiskRatesParams: React.FC<{
     allModules: CanvasModule[];
     allConnections: Connection[];
     moduleId: string;
-}> = ({ parameters, onParametersChange, allModules, allConnections, moduleId }) => {
+    compact?: boolean;
+}> = ({ parameters, onParametersChange, allModules, allConnections, moduleId, compact = false }) => {
     const { ageColumn, genderColumn } = parameters;
     
     const dataSource = getConnectedDataSource(moduleId, 'risk_data_in', allModules, allConnections);
@@ -180,22 +188,24 @@ const SelectRiskRatesParams: React.FC<{
     };
 
     if (!dataSource) {
-        return <p className="text-sm text-gray-500">Connect and run a data source to select columns.</p>;
+        return <p className={compact ? "text-xs text-gray-500" : "text-sm text-gray-500"}>Connect and run a data source to select columns.</p>;
     }
 
     return (
-        <div className="space-y-4">
+        <div className={compact ? "space-y-2" : "space-y-4"}>
             <PropertySelect 
                 label="Age Column" 
                 value={ageColumn} 
                 onChange={v => handleChange('ageColumn', v)} 
                 options={columnOptions}
+                compact={compact}
             />
             <PropertySelect 
                 label="Gender Column" 
                 value={genderColumn} 
                 onChange={v => handleChange('genderColumn', v)} 
                 options={columnOptions}
+                compact={compact}
             />
         </div>
     );
@@ -1706,42 +1716,53 @@ const ScenarioRunnerParams: React.FC<{
     );
 };
 
+export const renderParameterContent = (
+    module: CanvasModule,
+    onParametersChange: (newParams: Record<string, any>) => void,
+    modules: CanvasModule[],
+    connections: Connection[],
+    folderHandle: FileSystemDirectoryHandle | null,
+    compact: boolean = false
+) => {
+    switch (module.type) {
+        case ModuleType.DefinePolicyInfo:
+            return <DefinePolicyInfoParams parameters={module.parameters} onParametersChange={onParametersChange} compact={compact} />;
+        case ModuleType.LoadData:
+            return <LoadDataParams parameters={module.parameters} onParametersChange={onParametersChange} folderHandle={folderHandle} compact={compact} />;
+        case ModuleType.SelectData:
+            return <SelectDataParams parameters={module.parameters} onParametersChange={onParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} compact={compact} />;
+        case ModuleType.RateModifier:
+            return <RateModifierParams parameters={module.parameters} onParametersChange={onParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} compact={compact} />;
+        case ModuleType.SelectRiskRates:
+            return <SelectRiskRatesParams parameters={module.parameters} onParametersChange={onParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} compact={compact} />;
+        case ModuleType.CalculateSurvivors:
+            return <CalculateSurvivorsParams parameters={module.parameters} onParametersChange={onParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} compact={compact} />;
+        case ModuleType.ClaimsCalculator:
+            return <ClaimsCalculatorParams parameters={module.parameters} onParametersChange={onParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} compact={compact} />;
+        case ModuleType.NxMxCalculator:
+            return <NxMxCalculatorParams parameters={module.parameters} onParametersChange={onParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} compact={compact} />;
+        case ModuleType.PremiumComponent:
+            return <PremiumComponentParams parameters={module.parameters} onParametersChange={onParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} compact={compact} />;
+        case ModuleType.AdditionalName:
+            return <AdditionalNameParams parameters={module.parameters} onParametersChange={onParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} compact={compact} />;
+        case ModuleType.NetPremiumCalculator:
+            return <NetPremiumCalculatorParams parameters={module.parameters} onParametersChange={onParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} compact={compact} />;
+        case ModuleType.GrossPremiumCalculator:
+            return <GrossPremiumCalculatorParams parameters={module.parameters} onParametersChange={onParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} compact={compact} />;
+        case ModuleType.ScenarioRunner:
+            return <ScenarioRunnerParams parameters={module.parameters} onParametersChange={onParametersChange} allModules={modules} compact={compact} />;
+        default:
+            return <div className="text-gray-500 italic">No parameters available for this module type.</div>;
+    }
+};
+
 export const ParameterInputModal: React.FC<ParameterInputModalProps> = ({ module, onClose, updateModuleParameters, modules, connections, projectName, folderHandle }) => {
     const handleParametersChange = (newParams: Record<string, any>) => {
         updateModuleParameters(module.id, newParams);
     };
 
     const renderContent = () => {
-        switch (module.type) {
-            case ModuleType.DefinePolicyInfo:
-                return <DefinePolicyInfoParams parameters={module.parameters} onParametersChange={handleParametersChange} />;
-            case ModuleType.LoadData:
-                return <LoadDataParams parameters={module.parameters} onParametersChange={handleParametersChange} folderHandle={folderHandle} />;
-            case ModuleType.SelectData:
-                return <SelectDataParams parameters={module.parameters} onParametersChange={handleParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} />;
-            case ModuleType.RateModifier:
-                return <RateModifierParams parameters={module.parameters} onParametersChange={handleParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} />;
-            case ModuleType.SelectRiskRates:
-                return <SelectRiskRatesParams parameters={module.parameters} onParametersChange={handleParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} />;
-            case ModuleType.CalculateSurvivors:
-                return <CalculateSurvivorsParams parameters={module.parameters} onParametersChange={handleParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} />;
-            case ModuleType.ClaimsCalculator:
-                return <ClaimsCalculatorParams parameters={module.parameters} onParametersChange={handleParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} />;
-            case ModuleType.NxMxCalculator:
-                return <NxMxCalculatorParams parameters={module.parameters} onParametersChange={handleParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} />;
-            case ModuleType.PremiumComponent:
-                return <PremiumComponentParams parameters={module.parameters} onParametersChange={handleParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} />;
-            case ModuleType.AdditionalName:
-                return <AdditionalNameParams parameters={module.parameters} onParametersChange={handleParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} />;
-            case ModuleType.NetPremiumCalculator:
-                return <NetPremiumCalculatorParams parameters={module.parameters} onParametersChange={handleParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} />;
-             case ModuleType.GrossPremiumCalculator:
-                return <GrossPremiumCalculatorParams parameters={module.parameters} onParametersChange={handleParametersChange} allModules={modules} allConnections={connections} moduleId={module.id} />;
-            case ModuleType.ScenarioRunner:
-                return <ScenarioRunnerParams parameters={module.parameters} onParametersChange={handleParametersChange} allModules={modules} />;
-            default:
-                return <div className="text-gray-500 italic">No parameters available for this module type.</div>;
-        }
+        return renderParameterContent(module, handleParametersChange, modules, connections, folderHandle, false);
     };
 
     return (

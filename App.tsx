@@ -18,6 +18,7 @@ import { SAMPLE_DATA } from './sampleData';
 import { CodeTerminalPanel } from './components/CodeTerminalPanel';
 import { NetPremiumPreviewModal } from './components/NetPremiumPreviewModal';
 import { PipelineReportModal } from './components/PipelineReportModal';
+import { PipelineExecutionModal } from './components/PipelineExecutionModal';
 
 
 const getModuleDefault = (type: ModuleType) => {
@@ -248,6 +249,7 @@ const App: React.FC = () => {
   const [isToolboxExpanded, setIsToolboxExpanded] = useState(false);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [isSidebarVisible, setIsSidebarVisible] = useState(true);
+  const [isPipelineExecutionModalOpen, setIsPipelineExecutionModalOpen] = useState(false);
 
   const setConnections = useCallback((value: React.SetStateAction<Connection[]>) => {
     _setConnections(value);
@@ -1043,7 +1045,7 @@ const App: React.FC = () => {
 
                     const sortedRows = [...inputData.rows].sort((a, b) => Number(a[ageColumn]) - Number(b[ageColumn]));
                     if (sortedRows.length > 0 && sortedRows[0]['i_prem'] === undefined) {
-                        throw new Error("Input data must contain an 'i_prem' column for Dx calculations. Connect a 'Select Rates' module.");
+                        throw new Error("Input data must contain an 'i_prem' column for Dx calculations. Connect an 'Age Gender Matching' module.");
                     }
 
                     const outputRows = sortedRows.map(r => ({ ...r })); // Deep copy
@@ -1103,7 +1105,7 @@ const App: React.FC = () => {
                     const calculations = module.parameters.calculations || [];
                     
                     if (inputData.rows.length > 0 && inputData.rows[0]['i_claim'] === undefined) {
-                         throw new Error("Input data must contain an 'i_claim' column. Connect a 'Select Rates' module.");
+                         throw new Error("Input data must contain an 'i_claim' column. Connect an 'Age Gender Matching' module.");
                     }
 
                     // Deep copy rows to prevent mutating original input
@@ -1862,8 +1864,8 @@ const App: React.FC = () => {
   }, [selectedModuleIds, undo, redo, setModules, setConnections, setSelectedModuleIds, modules, connections, clipboard, deleteModules]);
 
   const categorizedModules = [
-    { name: 'Data', types: [ModuleType.LoadData, ModuleType.SelectData, ModuleType.RateModifier] },
-    { name: 'Actuarial', types: [ModuleType.DefinePolicyInfo, ModuleType.SelectRiskRates, ModuleType.CalculateSurvivors, ModuleType.ClaimsCalculator, ModuleType.NxMxCalculator, ModuleType.PremiumComponent, ModuleType.AdditionalName, ModuleType.NetPremiumCalculator, ModuleType.GrossPremiumCalculator] },
+    { name: 'Data', types: [ModuleType.DefinePolicyInfo, ModuleType.LoadData, ModuleType.SelectRiskRates, ModuleType.SelectData, ModuleType.RateModifier] },
+    { name: 'Actuarial', types: [ModuleType.CalculateSurvivors, ModuleType.ClaimsCalculator, ModuleType.NxMxCalculator, ModuleType.PremiumComponent, ModuleType.AdditionalName, ModuleType.NetPremiumCalculator, ModuleType.GrossPremiumCalculator] },
     { name: 'Automation', types: [ModuleType.ScenarioRunner, ModuleType.PipelineExplainer] }
   ];
 
@@ -1898,55 +1900,48 @@ const App: React.FC = () => {
             </div>
             
             {/* 버튼들: Samples, Load, Save 등 */}
-            <div className="flex items-center gap-2 flex-wrap justify-between">
-                <div className="flex items-center gap-2 flex-wrap">
-                    <button onClick={() => setIsSidebarVisible(prev => !prev)} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md transition-colors" title="Toggle Module Sidebar"><Bars3Icon className="h-5 w-5" /></button>
+            <div className="flex items-center gap-2 flex-wrap">
+                <button onClick={() => setIsSidebarVisible(prev => !prev)} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md transition-colors" title="Toggle Module Sidebar"><Bars3Icon className="h-5 w-5" /></button>
 
-                    <div className="h-5 border-l border-gray-700"></div>
+                <div className="h-5 border-l border-gray-700"></div>
 
-                    <div className="relative">
-                        <button 
-                            onClick={() => setIsSampleMenuOpen(!isSampleMenuOpen)} 
-                            className={`flex items-center gap-1 px-1.5 py-1 text-xs rounded-md font-semibold transition-colors ${isSampleMenuOpen ? 'bg-purple-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-200'}`}
-                            title="Load Sample Models"
-                        >
-                            <BeakerIcon className="h-3.5 w-3.5" />
-                            Samples
-                        </button>
-                        {isSampleMenuOpen && (
-                            <div className="absolute top-full left-0 mt-2 w-48 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 overflow-hidden">
-                                <div className="p-2 text-xs font-bold text-gray-500 uppercase">Predefined Models</div>
-                                {PREDEFINED_SAMPLES.map((sample, idx) => (
-                                    <button
-                                        key={idx}
-                                        onClick={() => handleLoadSample(sample)}
-                                        className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors border-b border-gray-700 last:border-0"
-                                    >
-                                        {sample.name}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
+                <div className="relative">
+                    <button 
+                        onClick={() => setIsSampleMenuOpen(!isSampleMenuOpen)} 
+                        className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md font-semibold transition-colors ${isSampleMenuOpen ? 'bg-purple-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-200'}`}
+                        title="Load Sample Models"
+                    >
+                        <BeakerIcon className="h-4 w-4" />
+                        Samples
+                    </button>
+                    {isSampleMenuOpen && (
+                        <div className="absolute top-full left-0 mt-2 w-48 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 overflow-hidden">
+                            <div className="p-2 text-xs font-bold text-gray-500 uppercase">Predefined Models</div>
+                            {PREDEFINED_SAMPLES.map((sample, idx) => (
+                                <button
+                                    key={idx}
+                                    onClick={() => handleLoadSample(sample)}
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors border-b border-gray-700 last:border-0"
+                                >
+                                    {sample.name}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
+                <button onClick={undo} disabled={!canUndo} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md disabled:text-gray-600 disabled:cursor-not-allowed transition-colors" title="Undo (Ctrl+Z)"><ArrowUturnLeftIcon className="h-5 w-5" /></button>
+                <button onClick={redo} disabled={!canRedo} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md disabled:text-gray-600 disabled:cursor-not-allowed transition-colors" title="Redo (Ctrl+Y)"><ArrowUturnRightIcon className="h-5 w-5" /></button>
+                <button onClick={() => setIsCodePanelVisible(prev => !prev)} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md transition-colors" title="Toggle Code & Terminal Panel"><CommandLineIcon className="h-5 w-5" /></button>
                 
-                <div className="flex items-center gap-2 flex-wrap">
-                    <button onClick={undo} disabled={!canUndo} className="p-1 text-gray-300 hover:bg-gray-700 rounded-md disabled:text-gray-600 disabled:cursor-not-allowed transition-colors" title="Undo (Ctrl+Z)"><ArrowUturnLeftIcon className="h-4 w-4" /></button>
-                    <button onClick={redo} disabled={!canRedo} className="p-1 text-gray-300 hover:bg-gray-700 rounded-md disabled:text-gray-600 disabled:cursor-not-allowed transition-colors" title="Redo (Ctrl+Y)"><ArrowUturnRightIcon className="h-4 w-4" /></button>
-                    
-                    <div className="h-5 border-l border-gray-700"></div>
+                <div className="h-5 border-l border-gray-700"></div>
 
-                    <div className="flex items-center gap-1 px-1.5 py-1 border border-gray-600 rounded-md bg-gray-800/50">
-                        <button onClick={handleSetFolder} className="flex items-center gap-1.5 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded font-semibold transition-colors" title="Set Save Folder"><FolderOpenIcon className="h-3.5 w-3.5" />Folder</button>
-                        <button onClick={handleLoadPipeline} className="flex items-center gap-1.5 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded font-semibold transition-colors" title="Load Pipeline"><FolderOpenIcon className="h-3.5 w-3.5" />Load</button>
-                        <button onClick={handleSavePipeline} disabled={!isDirty} className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded font-semibold transition-colors ${!isDirty ? 'bg-gray-600 cursor-not-allowed opacity-50' : 'bg-gray-700 hover:bg-gray-600'}`} title="Save Pipeline">
-                            {saveButtonText === 'Save' ? <CodeBracketIcon className="h-3.5 w-3.5" /> : <CheckIcon className="h-3.5 w-3.5" />}
-                            {saveButtonText}
-                        </button>
-                    </div>
-                    <button onClick={() => runSimulation()} className="flex items-center gap-1 px-1.5 py-1 text-xs bg-green-600 hover:bg-green-500 rounded-md font-bold text-white transition-colors"><PlayIcon className="h-3.5 w-3.5" />Run All</button>
-                    <button onClick={() => setIsCodePanelVisible(prev => !prev)} className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md transition-colors" title="Toggle Code & Terminal Panel"><CommandLineIcon className="h-5 w-5" /></button>
-                </div>
+                <button onClick={handleSetFolder} className="flex items-center gap-2 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded-md font-semibold transition-colors" title="Set Save Folder"><FolderOpenIcon className="h-4 w-4" />Folder</button>
+                <button onClick={handleLoadPipeline} className="flex items-center gap-2 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded-md font-semibold transition-colors" title="Load Pipeline"><FolderOpenIcon className="h-4 w-4" />Load</button>
+                <button onClick={handleSavePipeline} disabled={!isDirty} className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md font-semibold transition-colors ${!isDirty ? 'bg-gray-600 cursor-not-allowed opacity-50' : 'bg-gray-700 hover:bg-gray-600'}`} title="Save Pipeline">
+                    {saveButtonText === 'Save' ? <CodeBracketIcon className="h-4 w-4" /> : <CheckIcon className="h-4 w-4" />}
+                    {saveButtonText}
+                </button>
+                <button onClick={() => runSimulation()} className="flex items-center gap-2 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-500 rounded-md font-bold text-white transition-colors"><PlayIcon className="h-4 w-4" />Run All</button>
             </div>
         </header>
 
@@ -1954,6 +1949,14 @@ const App: React.FC = () => {
             {isSidebarVisible && (
             <div className="flex-shrink-0 bg-gray-800 border-r border-gray-700 z-10 p-2 relative w-64 overflow-y-auto scrollbar-hide">
                 <div className="flex flex-col gap-4">
+                <button
+                    onClick={() => setIsPipelineExecutionModalOpen(true)}
+                    className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-600 hover:bg-blue-500 rounded-md font-semibold transition-colors w-full text-left mb-2"
+                    title="Open Pipeline Execution View"
+                >
+                    <PlayIcon className="h-4 w-4" />
+                    Pipeline Execution
+                </button>
                 {categorizedModules.map((category, index) => {
                     const isCollapsed = collapsedCategories.has(category.name);
                     const toggleCategory = () => {
@@ -2071,6 +2074,33 @@ const App: React.FC = () => {
         )}
 
         {renderOutputModal()}
+
+        {isPipelineExecutionModalOpen && (
+            <PipelineExecutionModal
+                modules={modules}
+                connections={connections}
+                onClose={() => setIsPipelineExecutionModalOpen(false)}
+                onUpdateModule={(id, updates) => {
+                    if (updates.parameters) {
+                        const currentModule = modules.find(m => m.id === id);
+                        if (currentModule) {
+                            updateModuleParameters(id, { ...currentModule.parameters, ...updates.parameters });
+                        } else {
+                            updateModuleParameters(id, updates.parameters);
+                        }
+                    }
+                    if (updates.name) {
+                        updateModuleName(id, updates.name);
+                    }
+                }}
+                onRunModule={async (id) => {
+                    await runSimulation(id);
+                }}
+                getTopologicalSort={getTopologicalSort}
+                executePipeline={executePipeline}
+                folderHandle={folderHandleRef.current}
+            />
+        )}
     </div>
   );
 };
