@@ -7,12 +7,13 @@
 ### 현재 상태로 복구 (가장 간단)
 
 ```bash
-# 현재 상태로 복구 (최신 커밋: 18ded0b)
-git reset --hard 18ded0b
+# 현재 상태로 복구 (최신 커밋: a27ffb0)
+# 전체 해시: a27ffb04f4e0636f553fd0a67184f074beb0e3a7
+git reset --hard a27ffb0
 
 # 또는 백업 후 복구 (권장)
 git stash push -u -m "백업"
-git reset --hard 18ded0b
+git reset --hard a27ffb0
 ```
 
 ### 특정 커밋으로 복구
@@ -115,15 +116,15 @@ git clean -fd  # 추적되지 않은 파일 및 디렉토리 제거
 - **영향받은 파일**:
   - `HISTORY.md` (복구 정보 업데이트)
 - **변경 이유**: 현재 상태로 복구할 수 있도록 정보 기록
-- **Git 커밋 해시**: `bab7d6c` (전체 해시: `bab7d6c40d8e34d1fef1a2b1e7570feaba1a12ea` - 최신 커밋)
+- **Git 커밋 해시**: `a27ffb0` (전체 해시: `a27ffb04f4e0636f553fd0a67184f074beb0e3a7` - 최신 커밋)
 - **복구 방법**:
   ```bash
   # 백업 후 복구 (권장)
   git stash push -u -m "백업"
-  git reset --hard 18ded0b
+  git reset --hard a27ffb0
   
   # 또는 직접 복구
-  git reset --hard 18ded0b
+  git reset --hard a27ffb0
   ```
 
 ---
