@@ -7,12 +7,12 @@
 ### 현재 상태로 복구 (가장 간단)
 
 ```bash
-# 현재 상태로 복구 (최신 커밋: bab7d6c)
-git reset --hard bab7d6c
+# 현재 상태로 복구 (최신 커밋: 1fed35a)
+git reset --hard 1fed35a
 
 # 또는 백업 후 복구 (권장)
 git stash push -u -m "백업"
-git reset --hard bab7d6c
+git reset --hard 1fed35a
 ```
 
 ### 특정 커밋으로 복구
