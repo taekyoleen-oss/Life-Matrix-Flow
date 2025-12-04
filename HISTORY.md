@@ -7,12 +7,12 @@
 ### 현재 상태로 복구 (가장 간단)
 
 ```bash
-# 현재 상태로 복구 (커밋: 88b8ac3)
-git reset --hard 88b8ac3
+# 현재 상태로 복구 (최신 커밋: c0b89f9)
+git reset --hard c0b89f9
 
 # 또는 백업 후 복구 (권장)
 git stash push -u -m "백업"
-git reset --hard 88b8ac3
+git reset --hard c0b89f9
 ```
 
 ### 특정 커밋으로 복구
@@ -99,6 +99,31 @@ git clean -fd  # 추적되지 않은 파일 및 디렉토리 제거
   
   # 또는 직접 복구
   git reset --hard 88b8ac3
+  ```
+
+---
+
+## [2025-12-04] - HISTORY.md 복구 정보 업데이트
+
+### 변경 내용
+
+- **시간**: 2025-12-04 15:38:33 (추정)
+- **설명**:
+  - HISTORY.md에 현재 상태 복구 정보 추가
+  - 빠른 복구 가이드에 현재 커밋 해시 반영
+  - 복구 방법 간소화 및 정리
+- **영향받은 파일**:
+  - `HISTORY.md` (복구 정보 업데이트)
+- **변경 이유**: 현재 상태로 복구할 수 있도록 정보 기록
+- **Git 커밋 해시**: `c0b89f9` (전체 해시: `c0b89f969b394ddad12fffb84930627d019aa478`)
+- **복구 방법**:
+  ```bash
+  # 백업 후 복구 (권장)
+  git stash push -u -m "백업"
+  git reset --hard c0b89f9
+  
+  # 또는 직접 복구
+  git reset --hard c0b89f9
   ```
 
 ---
