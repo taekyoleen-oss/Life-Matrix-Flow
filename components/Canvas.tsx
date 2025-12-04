@@ -93,7 +93,17 @@ export const Canvas: React.FC<CanvasProps> = ({
       x: (e.clientX - canvasBounds.left - pan.x) / scale,
       y: (e.clientY - canvasBounds.top - pan.y) / scale,
     };
-    onModuleDrop(type, {x: position.x - 112, y: position.y - 30}); // Center module on drop
+    
+    // For Scenario Runner and Pipeline Explainer, account for box padding
+    const isSpecialModule = type === ModuleType.ScenarioRunner || type === ModuleType.PipelineExplainer;
+    const boxPadding = isSpecialModule ? 20 : 0;
+    const moduleWidth = 224; // w-56
+    const moduleHeight = isSpecialModule ? 120 : 60;
+    
+    onModuleDrop(type, {
+      x: position.x - moduleWidth / 2 + boxPadding, 
+      y: position.y - moduleHeight / 2 + boxPadding
+    });
   };
 
   const handleDragMove = useCallback((e: globalThis.MouseEvent) => {
@@ -308,6 +318,32 @@ export const Canvas: React.FC<CanvasProps> = ({
       {/* Modules - Rendered FIRST to be below connections, but z-index handles layering anyway. 
           We use z-10 for modules and z-20 for SVG to ensure connections are on top. */}
       <div className="relative z-10" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`, transformOrigin: 'top left' }}>
+        {/* Container boxes for Scenario Runner and Pipeline Explainer */}
+        {modules
+          .filter(module => module.type === ModuleType.ScenarioRunner || module.type === ModuleType.PipelineExplainer)
+          .map(module => {
+            const boxPadding = 20;
+            const moduleWidth = 224; // w-56
+            const moduleHeight = 120; // Increased height to accommodate module content
+            const boxWidth = moduleWidth + boxPadding * 2;
+            const boxHeight = moduleHeight + boxPadding * 2;
+            const boxX = module.position.x - boxPadding;
+            const boxY = module.position.y - boxPadding;
+            
+            return (
+              <div
+                key={`box-${module.id}`}
+                className="absolute border-2 border-gray-500 bg-gray-800/20 rounded-lg pointer-events-none"
+                style={{
+                  left: `${boxX}px`,
+                  top: `${boxY}px`,
+                  width: `${boxWidth}px`,
+                  height: `${boxHeight}px`,
+                }}
+              />
+            );
+          })}
+        
         {modules.map(module => {
           // Check if all connected inputs have a source module with status 'Success'
           const isRunnable = module.inputs.every(input => {

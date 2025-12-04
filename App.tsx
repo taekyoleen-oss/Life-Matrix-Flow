@@ -175,7 +175,7 @@ const initialModules: CanvasModule[] = [
     { 
         id: 'scenario-runner-1', 
         ...getModuleDefault(ModuleType.ScenarioRunner), 
-        position: { x: 50, y: 220 }, // Below policy info (moved down 50px)
+        position: { x: 70, y: 270 }, // Below policy info (moved down 50px + box padding 20px)
         parameters: {
             scenarios: [
                 { id: 'scen-1', variableName: 'entryAge', targetModuleId: 'policy-1', targetParameterName: 'entryAge', values: '30-40' },
@@ -189,7 +189,7 @@ const initialModules: CanvasModule[] = [
     {
         id: 'explainer-1',
         ...getModuleDefault(ModuleType.PipelineExplainer),
-        position: { x: 50, y: 340 }, // Below scenario runner (moved down 50px)
+        position: { x: 70, y: 450 }, // Below scenario runner (box height 160 + spacing 20 = 180px gap)
     }
 ];
 
@@ -409,18 +409,25 @@ const App: React.FC = () => {
     }
     
     // Place special modules (ScenarioRunner and PipelineExplainer) 50px below regular unconnected modules
+    // Account for box padding (20px) for special modules
+    const boxPadding = 20;
+    const specialModuleHeight = 120; // Increased height for special modules
+    const boxHeight = specialModuleHeight + boxPadding * 2; // Total box height: 160px
+    const minBoxSpacing = 20; // Minimum spacing between boxes to prevent overlap
     if (specialModuleIds.length > 0) {
-        const specialModuleYStart = regularUnconnectedY + 50;
+        const specialModuleYStart = regularUnconnectedY + 50 + boxPadding;
         specialModuleIds.forEach((moduleId, index) => {
             const moduleIndex = newModules.findIndex(m => m.id === moduleId);
             if (moduleIndex !== -1) {
-                const x = initialX;
-                const y = specialModuleYStart + index * (moduleHeight + rowSpacing);
+                const x = initialX + boxPadding;
+                // Calculate Y position ensuring boxes don't overlap
+                // Each box needs boxHeight + minBoxSpacing space
+                const y = specialModuleYStart + index * (boxHeight + minBoxSpacing);
                 newModules[moduleIndex].position = { x, y };
             }
         });
         if (maxX_Unconnected < initialX) {
-            maxX_Unconnected = initialX + moduleWidth;
+            maxX_Unconnected = initialX + moduleWidth + boxPadding * 2;
         }
     }
 
@@ -613,16 +620,63 @@ const App: React.FC = () => {
     const baseName = moduleInfo ? moduleInfo.name : type;
     const count = modules.filter(m => m.type === type).length + 1;
 
+    // Check if this is a special module that needs a container box
+    const isSpecialModule = type === ModuleType.ScenarioRunner || type === ModuleType.PipelineExplainer;
+    const boxPadding = isSpecialModule ? 20 : 0;
+    const moduleWidth = 224; // w-56
+    const moduleHeight = isSpecialModule ? 120 : 60;
+    const boxHeight = isSpecialModule ? moduleHeight + boxPadding * 2 : 0;
+    const minBoxSpacing = 20;
+
     let finalPosition = position;
     if (!finalPosition) {
         if (canvasContainerRef.current) {
             const canvasRect = canvasContainerRef.current.getBoundingClientRect();
-            finalPosition = {
-                x: (canvasRect.width / 2 - 112 - pan.x) / scale, // 112 is half new module width (224/2)
-                y: (canvasRect.height / 2 - 30 - pan.y) / scale, // 30 is half new module height (60/2)
-            };
+            
+            if (isSpecialModule) {
+                // Find existing special modules to avoid overlap
+                const existingSpecialModules = modules.filter(
+                    m => m.type === ModuleType.ScenarioRunner || m.type === ModuleType.PipelineExplainer
+                );
+                
+                // Find a position that doesn't overlap with existing boxes
+                let candidateY = (canvasRect.height / 2 - moduleHeight / 2 - pan.y) / scale + boxPadding;
+                let foundPosition = false;
+                
+                // Check if candidate position overlaps with existing boxes
+                for (let attempt = 0; attempt < 10; attempt++) {
+                    const candidateBoxTop = candidateY - boxPadding;
+                    const candidateBoxBottom = candidateBoxTop + boxHeight;
+                    
+                    const overlaps = existingSpecialModules.some(existing => {
+                        const existingBoxTop = existing.position.y - boxPadding;
+                        const existingBoxBottom = existingBoxTop + boxHeight;
+                        
+                        // Check if boxes overlap
+                        return !(candidateBoxBottom < existingBoxTop || candidateBoxTop > existingBoxBottom);
+                    });
+                    
+                    if (!overlaps) {
+                        foundPosition = true;
+                        break;
+                    }
+                    
+                    // Move down by box height + spacing
+                    candidateY += boxHeight + minBoxSpacing;
+                }
+                
+                finalPosition = {
+                    x: (canvasRect.width / 2 - moduleWidth / 2 - pan.x) / scale + boxPadding,
+                    y: candidateY,
+                };
+            } else {
+                finalPosition = {
+                    x: (canvasRect.width / 2 - moduleWidth / 2 - pan.x) / scale,
+                    y: (canvasRect.height / 2 - moduleHeight / 2 - pan.y) / scale,
+                };
+            }
         } else {
-            finalPosition = { x: 100, y: 100 };
+            finalPosition = { x: 100 + boxPadding, y: 100 + boxPadding };
         }
     }
 
