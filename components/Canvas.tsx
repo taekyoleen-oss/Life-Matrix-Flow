@@ -34,6 +34,7 @@ export const Canvas: React.FC<CanvasProps> = ({
   const portRefs = useRef(new Map<string, HTMLDivElement>());
   const isPanning = useRef(false);
   const panStart = useRef({ x: 0, y: 0 });
+  const mouseDownStart = useRef({ x: 0, y: 0 }); // Store initial mouse position for panning detection
   const [selectionBox, setSelectionBox] = useState<{ x1: number, y1: number, x2: number, y2: number } | null>(null);
   const isSelecting = useRef(false);
   const dragInfoRef = useRef<{
@@ -198,6 +199,7 @@ export const Canvas: React.FC<CanvasProps> = ({
         return;
     }
     if (e.target === e.currentTarget && e.button === 0) {
+        // Start selection box, but also prepare for potential panning
         if (!e.shiftKey) setSelectedModuleIds([]);
         setTappedSourcePort(null);
         isSelecting.current = true;
@@ -205,6 +207,8 @@ export const Canvas: React.FC<CanvasProps> = ({
         const startX = e.clientX - canvasRect.left;
         const startY = e.clientY - canvasRect.top;
         setSelectionBox({ x1: startX, y1: startY, x2: startX, y2: startY });
+        // Store initial mouse position for panning detection
+        mouseDownStart.current = { x: e.clientX, y: e.clientY };
     }
   };
 
@@ -215,10 +219,26 @@ export const Canvas: React.FC<CanvasProps> = ({
       } else if (isPanning.current) {
           setPan({ x: e.clientX - panStart.current.x, y: e.clientY - panStart.current.y });
       } else if (isSelecting.current && selectionBox && canvasContainerRef.current) {
-          const canvasRect = canvasContainerRef.current.getBoundingClientRect();
-          const currentX = e.clientX - canvasRect.left;
-          const currentY = e.clientY - canvasRect.top;
-          setSelectionBox(prev => prev ? { ...prev, x2: currentX, y2: currentY } : null);
+          // Check if mouse moved enough to switch to panning mode
+          const moveDistance = Math.sqrt(
+              Math.pow(e.clientX - mouseDownStart.current.x, 2) + 
+              Math.pow(e.clientY - mouseDownStart.current.y, 2)
+          );
+          
+          // If moved more than 5px, switch to panning mode
+          if (moveDistance > 5) {
+              isSelecting.current = false;
+              setSelectionBox(null);
+              isPanning.current = true;
+              panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+              (e.currentTarget as HTMLElement).style.cursor = 'grabbing';
+          } else {
+              // Continue with selection box
+              const canvasRect = canvasContainerRef.current.getBoundingClientRect();
+              const currentX = e.clientX - canvasRect.left;
+              const currentY = e.clientY - canvasRect.top;
+              setSelectionBox(prev => prev ? { ...prev, x2: currentX, y2: currentY } : null);
+          }
       }
   };
 
