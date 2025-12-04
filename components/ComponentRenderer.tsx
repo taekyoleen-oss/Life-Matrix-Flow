@@ -139,8 +139,14 @@ export const ComponentRenderer: React.FC<ModuleNodeProps> = ({
              <button 
                 onClick={(e) => { e.stopPropagation(); if(isRunnable) onRunModule(module.id); }}
                 disabled={!isRunnable}
-                className={`p-1 rounded-full transition-colors ${isRunnable ? 'text-green-500 hover:bg-green-900/30 hover:text-green-400' : 'text-gray-600 cursor-not-allowed opacity-50'}`}
-                title={isRunnable ? "Run Module" : "Upstream modules must run successfully first"}
+                className={`p-1 rounded-full transition-colors ${
+                    !isRunnable 
+                        ? 'text-gray-600 cursor-not-allowed opacity-50'
+                        : module.status === ModuleStatus.Success
+                        ? 'text-green-500 hover:bg-green-900/30 hover:text-green-400'
+                        : 'text-blue-500 hover:bg-blue-900/30 hover:text-blue-400'
+                }`}
+                title={isRunnable ? (module.status === ModuleStatus.Success ? "Module executed successfully" : "Run Module") : "Upstream modules must run successfully first"}
              >
                 <PlayIcon className="w-8 h-8" />
              </button>
