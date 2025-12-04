@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { CanvasModule, Connection, ModuleType, ModuleStatus, ModuleOutput, DataPreview, PolicyInfoOutput, NetPremiumOutput, GrossPremiumOutput } from '../types';
 import { XCircleIcon, PlayIcon, ChevronUpIcon, ChevronDownIcon } from './icons';
@@ -19,6 +20,7 @@ interface PipelineExecutionModalProps {
         overriddenParams: Record<string, Record<string, any>> | undefined,
         throwOnError: boolean
     ) => Promise<CanvasModule[]>;
+    folderHandle: FileSystemDirectoryHandle | null;
 }
 
 interface ModuleExecutionState {
@@ -269,7 +271,7 @@ export const PipelineExecutionModal: React.FC<PipelineExecutionModalProps> = ({
             folderHandle,
             true // compact mode
         );
-    }, [connections, modules, updateModuleParameter]);
+    }, [connections, modules, updateModuleParameter, folderHandle]);
 
     const renderOutputTable = useCallback((output: DataPreview) => {
         const columns = output.columns || [];
@@ -402,10 +404,13 @@ export const PipelineExecutionModal: React.FC<PipelineExecutionModalProps> = ({
         }
     }, [renderOutputTable]);
 
-    const getStatusColor = (status: ModuleStatus) => {
+    const getStatusColor = (status: ModuleStatus, canRun: boolean, needsExecution: boolean) => {
+        if (needsExecution) {
+            return 'bg-green-600';
+        }
         switch (status) {
             case ModuleStatus.Success:
-                return 'bg-green-600';
+                return 'bg-blue-600';
             case ModuleStatus.Error:
                 return 'bg-red-600';
             case ModuleStatus.Running:
@@ -442,7 +447,7 @@ export const PipelineExecutionModal: React.FC<PipelineExecutionModalProps> = ({
                                 const isRunning = runningModuleId === moduleId;
                                 const isDefinePolicyInfo = module.type === ModuleType.DefinePolicyInfo;
                                 
-                                // Define Policy Info는 항상 실행 가능한 것으로 간주 (실행하지 않으므로)
+                                // Define Policy Info는 항상 실행 불가로 설정 (실행하지 않으므로)
                                 // 다음 모듈부터는 Define Policy Info를 제외한 이전 모듈들이 성공했는지 확인
                                 const canRun = isDefinePolicyInfo 
                                     ? false // Define Policy Info는 실행 불가
@@ -465,7 +470,9 @@ export const PipelineExecutionModal: React.FC<PipelineExecutionModalProps> = ({
                                             isSelected 
                                                 ? 'bg-blue-600/30 border border-blue-500' 
                                                 : needsExecution
-                                                ? 'bg-yellow-900/30 border border-yellow-600/50 hover:bg-yellow-900/40'
+                                                ? 'bg-green-900/30 border border-green-600/50 hover:bg-green-900/40'
+                                                : state.status === ModuleStatus.Success
+                                                ? 'bg-blue-900/30 border border-blue-600/50 hover:bg-blue-900/40'
                                                 : 'hover:bg-gray-800 border border-transparent'
                                         }`}
                                     >
@@ -477,7 +484,7 @@ export const PipelineExecutionModal: React.FC<PipelineExecutionModalProps> = ({
                                             </div>
                                         </div>
                                         <div className="flex items-center justify-between mt-1">
-                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${getStatusColor(state.status)}`}>
+                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${getStatusColor(state.status, canRun, needsExecution)}`}>
                                                 {state.status}
                                             </span>
                                             {!isDefinePolicyInfo && (
@@ -491,7 +498,7 @@ export const PipelineExecutionModal: React.FC<PipelineExecutionModalProps> = ({
                                                         isRunning
                                                             ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                                                             : needsExecution
-                                                            ? 'bg-yellow-600 hover:bg-yellow-500 text-white'
+                                                            ? 'bg-green-600 hover:bg-green-500 text-white'
                                                             : canRun && !isRunning
                                                             ? 'bg-green-600 hover:bg-green-500 text-white'
                                                             : 'bg-gray-700 text-gray-500 cursor-not-allowed'
@@ -562,4 +569,3 @@ export const PipelineExecutionModal: React.FC<PipelineExecutionModalProps> = ({
         </div>
     );
 };
-

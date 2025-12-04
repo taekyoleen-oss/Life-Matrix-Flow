@@ -3,7 +3,7 @@ import React, { useState, useCallback, useRef, useEffect, useMemo, DragEvent } f
 import { Canvas } from './components/Canvas';
 import { CanvasModule, ModuleType, Connection, ModuleStatus, ModuleOutput, ColumnInfo, NetPremiumOutput, PremiumComponentOutput, PolicyInfoOutput, PipelineReportStep, AdditionalVariablesOutput, GrossPremiumOutput } from './types';
 import { DEFAULT_MODULES, TOOLBOX_MODULES } from './constants';
-import { LogoIcon, PlayIcon, CodeBracketIcon, FolderOpenIcon, PlusIcon, MinusIcon, ArrowUturnLeftIcon, ArrowUturnRightIcon, ArrowsPointingOutIcon, SparklesIcon, CheckIcon, CommandLineIcon, Bars3Icon, ClipboardDocumentListIcon, BeakerIcon, ChevronUpIcon, ChevronDownIcon } from './components/icons';
+import { LogoIcon, PlayIcon, CodeBracketIcon, FolderOpenIcon, PlusIcon, MinusIcon, ArrowUturnLeftIcon, ArrowUturnRightIcon, ArrowsPointingOutIcon, SparklesIcon, CheckIcon, CommandLineIcon, Bars3Icon, ClipboardDocumentListIcon, BeakerIcon, ChevronUpIcon, ChevronDownIcon, QueueListIcon } from './components/icons';
 import useHistoryState from './hooks/useHistoryState';
 import { DataPreviewModal } from './components/DataPreviewModal';
 import { StatisticsPreviewModal } from './components/StatisticsPreviewModal';
@@ -1045,7 +1045,7 @@ const App: React.FC = () => {
 
                     const sortedRows = [...inputData.rows].sort((a, b) => Number(a[ageColumn]) - Number(b[ageColumn]));
                     if (sortedRows.length > 0 && sortedRows[0]['i_prem'] === undefined) {
-                        throw new Error("Input data must contain an 'i_prem' column for Dx calculations. Connect an 'Age Gender Matching' module.");
+                        throw new Error("Input data must contain an 'i_prem' column for Dx calculations. Connect a 'Select Rates' module.");
                     }
 
                     const outputRows = sortedRows.map(r => ({ ...r })); // Deep copy
@@ -1105,7 +1105,7 @@ const App: React.FC = () => {
                     const calculations = module.parameters.calculations || [];
                     
                     if (inputData.rows.length > 0 && inputData.rows[0]['i_claim'] === undefined) {
-                         throw new Error("Input data must contain an 'i_claim' column. Connect an 'Age Gender Matching' module.");
+                         throw new Error("Input data must contain an 'i_claim' column. Connect a 'Select Rates' module.");
                     }
 
                     // Deep copy rows to prevent mutating original input
@@ -1864,8 +1864,8 @@ const App: React.FC = () => {
   }, [selectedModuleIds, undo, redo, setModules, setConnections, setSelectedModuleIds, modules, connections, clipboard, deleteModules]);
 
   const categorizedModules = [
-    { name: 'Data', types: [ModuleType.DefinePolicyInfo, ModuleType.LoadData, ModuleType.SelectRiskRates, ModuleType.SelectData, ModuleType.RateModifier] },
-    { name: 'Actuarial', types: [ModuleType.CalculateSurvivors, ModuleType.ClaimsCalculator, ModuleType.NxMxCalculator, ModuleType.PremiumComponent, ModuleType.AdditionalName, ModuleType.NetPremiumCalculator, ModuleType.GrossPremiumCalculator] },
+    { name: 'Data', types: [ModuleType.LoadData, ModuleType.SelectData, ModuleType.RateModifier] },
+    { name: 'Actuarial', types: [ModuleType.DefinePolicyInfo, ModuleType.SelectRiskRates, ModuleType.CalculateSurvivors, ModuleType.ClaimsCalculator, ModuleType.NxMxCalculator, ModuleType.PremiumComponent, ModuleType.AdditionalName, ModuleType.NetPremiumCalculator, ModuleType.GrossPremiumCalculator] },
     { name: 'Automation', types: [ModuleType.ScenarioRunner, ModuleType.PipelineExplainer] }
   ];
 
@@ -1949,14 +1949,16 @@ const App: React.FC = () => {
             {isSidebarVisible && (
             <div className="flex-shrink-0 bg-gray-800 border-r border-gray-700 z-10 p-2 relative w-64 overflow-y-auto scrollbar-hide">
                 <div className="flex flex-col gap-4">
-                <button
-                    onClick={() => setIsPipelineExecutionModalOpen(true)}
-                    className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-600 hover:bg-blue-500 rounded-md font-semibold transition-colors w-full text-left mb-2"
-                    title="Open Pipeline Execution View"
+                {/* Pipeline Execution Button - Above Data Category */}
+                <button 
+                    onClick={() => setIsPipelineExecutionModalOpen(true)} 
+                    className="flex items-center gap-2 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 rounded-md font-semibold text-white transition-colors w-full justify-center mb-2" 
+                    title="Pipeline Execution"
                 >
-                    <PlayIcon className="h-4 w-4" />
+                    <QueueListIcon className="h-4 w-4" />
                     Pipeline Execution
                 </button>
+                <div className="w-full h-px bg-gray-600 mb-2"></div>
                 {categorizedModules.map((category, index) => {
                     const isCollapsed = collapsedCategories.has(category.name);
                     const toggleCategory = () => {

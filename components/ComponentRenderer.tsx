@@ -1,6 +1,6 @@
 
 import React, { MouseEvent, TouchEvent, useRef, useCallback, useMemo } from 'react';
-import { CanvasModule, ModuleStatus, Port, Connection, ModuleType } from '../types';
+import { CanvasModule, ModuleStatus, Port, Connection } from '../types';
 import { PlayIcon, XMarkIcon } from './icons';
 import { TOOLBOX_MODULES } from '../constants';
 import { ModuleOutputSummary } from './ModuleOutputSummary';
@@ -41,41 +41,9 @@ interface ModuleNodeProps {
 
 const statusColors = {
     [ModuleStatus.Pending]: 'bg-gray-800/50 border-gray-600',
-    [ModuleStatus.Running]: 'bg-blue-900/50 border-blue-500',
-    [ModuleStatus.Success]: 'bg-green-900/50 border-green-500',
+    [ModuleStatus.Running]: 'bg-yellow-900/50 border-yellow-500',
+    [ModuleStatus.Success]: 'bg-blue-900/50 border-blue-500',
     [ModuleStatus.Error]: 'bg-red-900/50 border-red-500',
-};
-
-const getModuleBorderColor = (status: ModuleStatus, isRunnable: boolean, moduleType: ModuleType) => {
-    // Define Policy Info 모듈은 파란색으로 표시
-    if (moduleType === ModuleType.DefinePolicyInfo) {
-        return 'border-blue-500';
-    }
-    // Automation 모듈은 실행 대기 색상 표시 제외
-    if (moduleType === ModuleType.ScenarioRunner || moduleType === ModuleType.PipelineExplainer) {
-        return statusColors[status].split(' ')[1] || 'border-gray-600';
-    }
-    // 실행 대기 중인 모듈 (실행 가능하고 아직 실행되지 않은 경우)
-    if (isRunnable && status === ModuleStatus.Pending) {
-        return 'border-yellow-600/50';
-    }
-    return statusColors[status].split(' ')[1] || 'border-gray-600';
-};
-
-const getModuleBgColor = (status: ModuleStatus, isRunnable: boolean, moduleType: ModuleType) => {
-    // Define Policy Info 모듈은 파란색으로 표시
-    if (moduleType === ModuleType.DefinePolicyInfo) {
-        return 'bg-blue-900/30';
-    }
-    // Automation 모듈은 실행 대기 색상 표시 제외
-    if (moduleType === ModuleType.ScenarioRunner || moduleType === ModuleType.PipelineExplainer) {
-        return statusColors[status].split(' ')[0] || 'bg-gray-800/50';
-    }
-    // 실행 대기 중인 모듈 (실행 가능하고 아직 실행되지 않은 경우)
-    if (isRunnable && status === ModuleStatus.Pending) {
-        return 'bg-yellow-900/30';
-    }
-    return statusColors[status].split(' ')[0] || 'bg-gray-800/50';
 };
 
 const PortComponent: React.FC<PortComponentProps> = ({ port, isInput, moduleId, portRefs, onStartConnection, onEndConnection, isTappedSource, onTapPort, style }) => {
@@ -139,12 +107,8 @@ export const ComponentRenderer: React.FC<ModuleNodeProps> = ({
     onTouchDragStart(module.id, e);
   };
 
-  // Automation 모듈은 실행 대기 색상 표시 제외
-  const isAutomationModule = module.type === ModuleType.ScenarioRunner || module.type === ModuleType.PipelineExplainer;
-  const needsExecution = !isAutomationModule && isRunnable && module.status === ModuleStatus.Pending;
-  const moduleBgColor = getModuleBgColor(module.status, isRunnable, module.type);
-  const moduleBorderColor = getModuleBorderColor(module.status, isRunnable, module.type);
-  const wrapperClasses = `absolute w-56 h-auto min-h-[80px] backdrop-blur-md border rounded-lg shadow-lg flex flex-col cursor-move ${moduleBgColor} ${moduleBorderColor} ${isSelected ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-blue-500' : ''}`;
+  const isRunnableAndPending = isRunnable && module.status === ModuleStatus.Pending;
+  const wrapperClasses = `absolute w-56 h-auto min-h-[80px] backdrop-blur-md border rounded-lg shadow-lg flex flex-col cursor-move ${statusColors[module.status]} ${isRunnableAndPending ? 'border-green-600 bg-green-900/30' : ''} ${isSelected ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-blue-500' : ''}`;
   
   return (
     <div 
@@ -172,22 +136,14 @@ export const ComponentRenderer: React.FC<ModuleNodeProps> = ({
             </h3>
          </div>
          <div className="flex items-center gap-1 flex-shrink-0">
-             {module.type !== ModuleType.DefinePolicyInfo && (
-                 <button 
-                    onClick={(e) => { e.stopPropagation(); if(isRunnable) onRunModule(module.id); }}
-                    disabled={!isRunnable}
-                    className={`p-1 rounded-full transition-colors ${
-                        needsExecution 
-                            ? 'text-yellow-500 hover:bg-yellow-900/30 hover:text-yellow-400' 
-                            : isRunnable 
-                            ? 'text-green-500 hover:bg-green-900/30 hover:text-green-400' 
-                            : 'text-gray-600 cursor-not-allowed opacity-50'
-                    }`}
-                    title={needsExecution ? "Ready to run" : isRunnable ? "Run Module" : "Upstream modules must run successfully first"}
-                 >
-                    <PlayIcon className="w-8 h-8" />
-                 </button>
-             )}
+             <button 
+                onClick={(e) => { e.stopPropagation(); if(isRunnable) onRunModule(module.id); }}
+                disabled={!isRunnable}
+                className={`p-1 rounded-full transition-colors ${isRunnable ? 'text-green-500 hover:bg-green-900/30 hover:text-green-400' : 'text-gray-600 cursor-not-allowed opacity-50'}`}
+                title={isRunnable ? "Run Module" : "Upstream modules must run successfully first"}
+             >
+                <PlayIcon className="w-8 h-8" />
+             </button>
              <button 
                 onClick={handleDelete}
                 className="p-1 text-gray-500 hover:text-red-400 hover:bg-red-900/30 rounded-full transition-colors"
