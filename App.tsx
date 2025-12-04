@@ -175,7 +175,7 @@ const initialModules: CanvasModule[] = [
     { 
         id: 'scenario-runner-1', 
         ...getModuleDefault(ModuleType.ScenarioRunner), 
-        position: { x: 50, y: 170 }, // Below policy info
+        position: { x: 50, y: 220 }, // Below policy info (moved down 50px)
         parameters: {
             scenarios: [
                 { id: 'scen-1', variableName: 'entryAge', targetModuleId: 'policy-1', targetParameterName: 'entryAge', values: '30-40' },
@@ -189,7 +189,7 @@ const initialModules: CanvasModule[] = [
     {
         id: 'explainer-1',
         ...getModuleDefault(ModuleType.PipelineExplainer),
-        position: { x: 50, y: 290 }, // Below scenario runner
+        position: { x: 50, y: 340 }, // Below scenario runner (moved down 50px)
     }
 ];
 
@@ -382,19 +382,46 @@ const App: React.FC = () => {
     const groupGap = 100;
 
     // --- Place Unconnected Modules (Left Column) ---
+    // Separate ScenarioRunner and PipelineExplainer from other unconnected modules
+    const specialModuleIds = unconnectedModuleIds.filter(id => {
+        const module = newModules.find(m => m.id === id);
+        return module && (module.type === ModuleType.ScenarioRunner || module.type === ModuleType.PipelineExplainer);
+    });
+    const regularUnconnectedIds = unconnectedModuleIds.filter(id => !specialModuleIds.includes(id));
+    
     let maxX_Unconnected = initialX;
-    if (unconnectedModuleIds.length > 0) {
-        unconnectedModuleIds.forEach((moduleId, index) => {
+    let regularUnconnectedY = initialY;
+    
+    // Place regular unconnected modules first
+    if (regularUnconnectedIds.length > 0) {
+        regularUnconnectedIds.forEach((moduleId, index) => {
             const moduleIndex = newModules.findIndex(m => m.id === moduleId);
             if (moduleIndex !== -1) {
                 const x = initialX;
                 const y = initialY + index * (moduleHeight + rowSpacing);
                 newModules[moduleIndex].position = { x, y };
+                regularUnconnectedY = y + moduleHeight + rowSpacing;
             }
         });
         maxX_Unconnected += moduleWidth; 
     } else {
         maxX_Unconnected = initialX - groupGap; // Reset if empty
+    }
+    
+    // Place special modules (ScenarioRunner and PipelineExplainer) 50px below regular unconnected modules
+    if (specialModuleIds.length > 0) {
+        const specialModuleYStart = regularUnconnectedY + 50;
+        specialModuleIds.forEach((moduleId, index) => {
+            const moduleIndex = newModules.findIndex(m => m.id === moduleId);
+            if (moduleIndex !== -1) {
+                const x = initialX;
+                const y = specialModuleYStart + index * (moduleHeight + rowSpacing);
+                newModules[moduleIndex].position = { x, y };
+            }
+        });
+        if (maxX_Unconnected < initialX) {
+            maxX_Unconnected = initialX + moduleWidth;
+        }
     }
 
     // --- Place Connected Modules (Layered Layout) ---
@@ -1732,11 +1759,16 @@ const App: React.FC = () => {
         return;
     }
     
+    // Filter out ScenarioRunner and PipelineExplainer from Run All
+    const filteredModules = modules.filter(m => 
+        m.type !== ModuleType.ScenarioRunner && m.type !== ModuleType.PipelineExplainer
+    );
+    
     const runQueue = startModuleId 
         ? [startModuleId] 
         : (isPipelineExplainer 
             ? [startModuleId!] 
-            : getTopologicalSort(modules, connections));
+            : getTopologicalSort(filteredModules, connections));
     
     const log = (moduleId: string, message: string) => {
         setTerminalOutputs(prev => ({ ...prev, [moduleId]: [...(prev[moduleId] || []), `[${new Date().toLocaleTimeString()}] ${message}`] }));
@@ -1864,8 +1896,8 @@ const App: React.FC = () => {
   }, [selectedModuleIds, undo, redo, setModules, setConnections, setSelectedModuleIds, modules, connections, clipboard, deleteModules]);
 
   const categorizedModules = [
-    { name: 'Data', types: [ModuleType.LoadData, ModuleType.SelectData, ModuleType.RateModifier] },
-    { name: 'Actuarial', types: [ModuleType.DefinePolicyInfo, ModuleType.SelectRiskRates, ModuleType.CalculateSurvivors, ModuleType.ClaimsCalculator, ModuleType.NxMxCalculator, ModuleType.PremiumComponent, ModuleType.AdditionalName, ModuleType.NetPremiumCalculator, ModuleType.GrossPremiumCalculator] },
+    { name: 'Data', types: [ModuleType.DefinePolicyInfo, ModuleType.LoadData, ModuleType.SelectRiskRates, ModuleType.SelectData, ModuleType.RateModifier] },
+    { name: 'Actuarial', types: [ModuleType.CalculateSurvivors, ModuleType.ClaimsCalculator, ModuleType.NxMxCalculator, ModuleType.PremiumComponent, ModuleType.AdditionalName, ModuleType.NetPremiumCalculator, ModuleType.GrossPremiumCalculator] },
     { name: 'Automation', types: [ModuleType.ScenarioRunner, ModuleType.PipelineExplainer] }
   ];
 

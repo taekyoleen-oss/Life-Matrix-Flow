@@ -1,6 +1,6 @@
 
 import React, { MouseEvent, TouchEvent, useRef, useCallback, useMemo } from 'react';
-import { CanvasModule, ModuleStatus, Port, Connection } from '../types';
+import { CanvasModule, ModuleStatus, Port, Connection, ModuleType } from '../types';
 import { PlayIcon, XMarkIcon } from './icons';
 import { TOOLBOX_MODULES } from '../constants';
 import { ModuleOutputSummary } from './ModuleOutputSummary';
@@ -41,6 +41,14 @@ interface ModuleNodeProps {
 
 const statusColors = {
     [ModuleStatus.Pending]: 'bg-gray-800/50 border-gray-600',
+    [ModuleStatus.Running]: 'bg-yellow-900/50 border-yellow-500',
+    [ModuleStatus.Success]: 'bg-blue-900/50 border-blue-500',
+    [ModuleStatus.Error]: 'bg-red-900/50 border-red-500',
+};
+
+// Special status colors for ScenarioRunner and PipelineExplainer (always gray when pending)
+const specialModuleStatusColors = {
+    [ModuleStatus.Pending]: 'bg-gray-700/50 border-gray-500',
     [ModuleStatus.Running]: 'bg-yellow-900/50 border-yellow-500',
     [ModuleStatus.Success]: 'bg-blue-900/50 border-blue-500',
     [ModuleStatus.Error]: 'bg-red-900/50 border-red-500',
@@ -108,7 +116,12 @@ export const ComponentRenderer: React.FC<ModuleNodeProps> = ({
   };
 
   const isRunnableAndPending = isRunnable && module.status === ModuleStatus.Pending;
-  const wrapperClasses = `absolute w-56 h-auto min-h-[80px] backdrop-blur-md border rounded-lg shadow-lg flex flex-col cursor-move ${statusColors[module.status]} ${isRunnableAndPending ? 'border-green-600 bg-green-900/30' : ''} ${isSelected ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-blue-500' : ''}`;
+  const isSpecialModule = module.type === ModuleType.ScenarioRunner || module.type === ModuleType.PipelineExplainer;
+  const moduleStatusColors = isSpecialModule ? specialModuleStatusColors : statusColors;
+  
+  // Different styling for special modules: rounded corners (rounded-2xl) and different shape
+  const borderRadiusClass = isSpecialModule ? 'rounded-2xl' : 'rounded-lg';
+  const wrapperClasses = `absolute w-56 h-auto min-h-[80px] backdrop-blur-md border ${borderRadiusClass} shadow-lg flex flex-col cursor-move ${moduleStatusColors[module.status]} ${isRunnableAndPending && !isSpecialModule ? 'border-green-600 bg-green-900/30' : ''} ${isSelected ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-blue-500' : ''}`;
   
   return (
     <div 
@@ -118,7 +131,7 @@ export const ComponentRenderer: React.FC<ModuleNodeProps> = ({
       onTouchStart={handleTouchStart}
     >
       {/* Header: Name & Run */}
-      <div className="flex items-center justify-between px-2 py-1 bg-gray-900/30 border-b border-gray-700 rounded-t-lg h-12 flex-shrink-0">
+      <div className={`flex items-center justify-between px-2 py-1 bg-gray-900/30 border-b border-gray-700 ${isSpecialModule ? 'rounded-t-2xl' : 'rounded-t-lg'} h-12 flex-shrink-0`}>
          <div className="flex items-center gap-2 overflow-hidden">
             {moduleInfo && <moduleInfo.icon className="w-4 h-4 text-gray-400 flex-shrink-0" />}
             <h3 
@@ -136,6 +149,27 @@ export const ComponentRenderer: React.FC<ModuleNodeProps> = ({
             </h3>
          </div>
          <div className="flex items-center gap-1 flex-shrink-0">
+             {isSpecialModule ? (
+                 // Special button for ScenarioRunner and PipelineExplainer: "전체실행" button
+                 <button 
+                    onClick={(e) => { e.stopPropagation(); onRunModule(module.id); }}
+                    className={`px-2 py-1 rounded-md transition-colors text-xs font-semibold whitespace-normal ${
+                        module.status === ModuleStatus.Success
+                        ? 'bg-green-600 hover:bg-green-500 text-white'
+                        : module.status === ModuleStatus.Running
+                        ? 'bg-yellow-600 hover:bg-yellow-500 text-white'
+                        : module.status === ModuleStatus.Error
+                        ? 'bg-red-600 hover:bg-red-500 text-white'
+                        : 'bg-gray-600 hover:bg-gray-500 text-white'
+                    }`}
+                    title="전체실행"
+                    style={{ lineHeight: '1.1', minWidth: '50px' }}
+                 >
+                    <span className="block">전체</span>
+                    <span className="block">실행</span>
+                 </button>
+             ) : (
+                 // Regular play button for other modules
              <button 
                 onClick={(e) => { e.stopPropagation(); if(isRunnable) onRunModule(module.id); }}
                 disabled={!isRunnable}
@@ -150,6 +184,7 @@ export const ComponentRenderer: React.FC<ModuleNodeProps> = ({
              >
                 <PlayIcon className="w-8 h-8" />
              </button>
+             )}
              <button 
                 onClick={handleDelete}
                 className="p-1 text-gray-500 hover:text-red-400 hover:bg-red-900/30 rounded-full transition-colors"
