@@ -7,12 +7,12 @@
 ### 현재 상태로 복구 (가장 간단)
 
 ```bash
-# 현재 상태로 복구 (최신 커밋: 1fed35a)
-git reset --hard 1fed35a
+# 현재 상태로 복구 (최신 커밋: 18ded0b)
+git reset --hard 18ded0b
 
 # 또는 백업 후 복구 (권장)
 git stash push -u -m "백업"
-git reset --hard 1fed35a
+git reset --hard 18ded0b
 ```
 
 ### 특정 커밋으로 복구
@@ -120,10 +120,10 @@ git clean -fd  # 추적되지 않은 파일 및 디렉토리 제거
   ```bash
   # 백업 후 복구 (권장)
   git stash push -u -m "백업"
-  git reset --hard bab7d6c
+  git reset --hard 18ded0b
   
   # 또는 직접 복구
-  git reset --hard bab7d6c
+  git reset --hard 18ded0b
   ```
 
 ---
