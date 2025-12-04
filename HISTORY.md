@@ -7,13 +7,13 @@
 ### 현재 상태로 복구 (가장 간단)
 
 ```bash
-# 현재 상태로 복구 (최신 커밋: a27ffb0)
-# 전체 해시: a27ffb04f4e0636f553fd0a67184f074beb0e3a7
-git reset --hard a27ffb0
+# 현재 상태로 복구 (최신 커밋: 97d06ca)
+# 전체 해시: 97d06ca... (git rev-parse HEAD로 확인)
+git reset --hard 97d06ca
 
 # 또는 백업 후 복구 (권장)
 git stash push -u -m "백업"
-git reset --hard a27ffb0
+git reset --hard 97d06ca
 ```
 
 ### 특정 커밋으로 복구
