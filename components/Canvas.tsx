@@ -21,13 +21,14 @@ interface CanvasProps {
   onRunModule: (moduleId: string) => void;
   onDeleteModule: (moduleId: string) => void;
   onUpdateModuleName: (id: string, newName: string) => void;
+  onUpdateModuleParameters?: (id: string, params: Record<string, any>) => void;
 }
 
 export const Canvas: React.FC<CanvasProps> = ({ 
     modules, connections, setConnections, selectedModuleIds, setSelectedModuleIds, 
     updateModulePositions, onModuleDrop, scale, setScale, pan, setPan, 
     canvasContainerRef, onViewDetails, onEditParameters, onRunModule, 
-    onDeleteModule, onUpdateModuleName
+    onDeleteModule, onUpdateModuleName, onUpdateModuleParameters
 }) => {
   const [dragConnection, setDragConnection] = useState<{ from: { moduleId: string, portName: string, isInput: boolean }, to: { x: number, y: number } } | null>(null);
   const [tappedSourcePort, setTappedSourcePort] = useState<{ moduleId: string; portName: string; } | null>(null);
@@ -128,6 +129,8 @@ export const Canvas: React.FC<CanvasProps> = ({
   const handleModuleDragStart = useCallback((draggedModuleId: string, e: MouseEvent) => {
     if (e.button !== 0) return;
     const isShift = e.shiftKey;
+    const draggedModule = modules.find(m => m.id === draggedModuleId);
+    const isGroupBox = draggedModule?.type === ModuleType.GroupBox;
     const alreadySelected = selectedModuleIds.includes(draggedModuleId);
     let idsToDrag = selectedModuleIds;
 
@@ -141,7 +144,26 @@ export const Canvas: React.FC<CanvasProps> = ({
     }
     
     const startPositions = new Map<string, { x: number, y: number }>();
-    modules.forEach(m => { if (idsToDrag.includes(m.id)) startPositions.set(m.id, m.position); });
+    
+    // If dragging a group box, include all modules in the group
+    if (isGroupBox && draggedModule) {
+        const groupModuleIds = (draggedModule.parameters as any)?.moduleIds || [];
+        groupModuleIds.forEach((id: string) => {
+            const module = modules.find(m => m.id === id);
+            if (module) {
+                startPositions.set(id, module.position);
+                if (!idsToDrag.includes(id)) {
+                    idsToDrag = [...idsToDrag, id];
+                }
+            }
+        });
+        // Also include the group box itself
+        startPositions.set(draggedModuleId, draggedModule.position);
+    } else {
+        // Normal drag: just the selected modules
+        modules.forEach(m => { if (idsToDrag.includes(m.id)) startPositions.set(m.id, m.position); });
+    }
+    
     dragInfoRef.current = { draggedModuleIds: idsToDrag, startPositions, dragStartPoint: { x: e.clientX, y: e.clientY } };
     window.addEventListener('mousemove', handleDragMove);
     window.addEventListener('mouseup', handleDragEnd);
@@ -199,8 +221,16 @@ export const Canvas: React.FC<CanvasProps> = ({
         return;
     }
     if (e.target === e.currentTarget && e.button === 0) {
-        // Start selection box, but also prepare for potential panning
-        if (!e.shiftKey) setSelectedModuleIds([]);
+        // If Shift key is pressed, start panning mode immediately
+        if (e.shiftKey) {
+            e.preventDefault();
+            isPanning.current = true;
+            panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+            (e.currentTarget as HTMLElement).style.cursor = 'grabbing';
+            return;
+        }
+        // Otherwise, start selection box
+        setSelectedModuleIds([]);
         setTappedSourcePort(null);
         isSelecting.current = true;
         const canvasRect = canvasContainerRef.current!.getBoundingClientRect();
@@ -219,14 +249,8 @@ export const Canvas: React.FC<CanvasProps> = ({
       } else if (isPanning.current) {
           setPan({ x: e.clientX - panStart.current.x, y: e.clientY - panStart.current.y });
       } else if (isSelecting.current && selectionBox && canvasContainerRef.current) {
-          // Check if mouse moved enough to switch to panning mode
-          const moveDistance = Math.sqrt(
-              Math.pow(e.clientX - mouseDownStart.current.x, 2) + 
-              Math.pow(e.clientY - mouseDownStart.current.y, 2)
-          );
-          
-          // If moved more than 5px, switch to panning mode
-          if (moveDistance > 5) {
+          // Check if Shift key is pressed to switch to panning mode
+          if (e.shiftKey) {
               isSelecting.current = false;
               setSelectionBox(null);
               isPanning.current = true;
@@ -383,7 +407,9 @@ export const Canvas: React.FC<CanvasProps> = ({
                 onViewDetails={onViewDetails} scale={scale} onRunModule={onRunModule}
                 tappedSourcePort={tappedSourcePort} onTapPort={handleTapPort}
                 cancelDragConnection={cancelDragConnection} onDelete={onDeleteModule}
-                onModuleNameChange={onUpdateModuleName} dragConnection={dragConnection}
+                onModuleNameChange={onUpdateModuleName} 
+                onUpdateModuleParameters={onUpdateModuleParameters}
+                dragConnection={dragConnection}
                 isRunnable={isRunnable}
             />
           );

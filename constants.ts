@@ -1,6 +1,6 @@
 
 import { ModuleType, CanvasModule, ModuleStatus } from './types';
-import { DatabaseIcon, TableCellsIcon, DocumentTextIcon, CalculatorIcon, PriceTagIcon, CheckBadgeIcon, QueueListIcon, AdjustmentsHorizontalIcon, ClipboardDocumentListIcon, TagIcon, BanknotesIcon } from './components/icons';
+import { DatabaseIcon, TableCellsIcon, DocumentTextIcon, CalculatorIcon, PriceTagIcon, CheckBadgeIcon, QueueListIcon, AdjustmentsHorizontalIcon, ClipboardDocumentListIcon, TagIcon, BanknotesIcon, TextBoxIcon, GroupBoxIcon } from './components/icons';
 
 export const TOOLBOX_MODULES = [
   { type: ModuleType.DefinePolicyInfo, name: 'Define Policy Info', icon: DocumentTextIcon, description: "Sets the basic information for the insurance product, such as age, gender, and terms." },
@@ -17,6 +17,8 @@ export const TOOLBOX_MODULES = [
   { type: ModuleType.GrossPremiumCalculator, name: 'Gross Premium Calculator', icon: BanknotesIcon, description: "Calculates the gross premium (GP) based on Net Premium (PP) and loadings." },
   { type: ModuleType.ScenarioRunner, name: 'Scenario Runner', icon: QueueListIcon, description: "Runs the entire pipeline multiple times for different scenarios and aggregates the results." },
   { type: ModuleType.PipelineExplainer, name: 'Pipeline Explainer', icon: ClipboardDocumentListIcon, description: "Generates a detailed report of the entire calculation pipeline, including formulas and steps." },
+  { type: ModuleType.TextBox, name: '텍스트 상자', icon: TextBoxIcon, description: "캔버스에 텍스트를 입력할 수 있는 텍스트 상자를 추가합니다." },
+  { type: ModuleType.GroupBox, name: '그룹 상자', icon: GroupBoxIcon, description: "선택된 모듈들을 그룹으로 묶어 함께 이동할 수 있도록 합니다." },
 ];
 
 export const DEFAULT_MODULES: Omit<CanvasModule, 'id' | 'position' | 'name'>[] = [
@@ -153,5 +155,19 @@ export const DEFAULT_MODULES: Omit<CanvasModule, 'id' | 'position' | 'name'>[] =
     parameters: {},
     inputs: [],
     outputs: [{ name: 'report_out', type: 'report' }],
+  },
+  {
+    type: ModuleType.TextBox,
+    status: ModuleStatus.Pending,
+    parameters: { text: '', fontSize: 14, color: '#90ee90', width: 200, height: 60 },
+    inputs: [],
+    outputs: [],
+  },
+  {
+    type: ModuleType.GroupBox,
+    status: ModuleStatus.Pending,
+    parameters: { moduleIds: [], bounds: { x: 0, y: 0, width: 0, height: 0 }, fontSize: 12 },
+    inputs: [],
+    outputs: [],
   },
 ];

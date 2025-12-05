@@ -34,6 +34,7 @@ interface ModuleNodeProps {
   cancelDragConnection: () => void;
   onDelete: (id: string) => void;
   onModuleNameChange: (id: string, newName: string) => void;
+  onUpdateModuleParameters?: (id: string, params: Record<string, any>) => void;
   scale: number;
   dragConnection: { from: { moduleId: string; portName: string; isInput: boolean; }; to: { x: number; y: number; }; } | null;
   isRunnable: boolean;
@@ -92,6 +93,7 @@ export const ComponentRenderer: React.FC<ModuleNodeProps> = ({
     onDelete,
     cancelDragConnection,
     onModuleNameChange,
+    onUpdateModuleParameters,
     scale,
     dragConnection,
     isRunnable 
@@ -117,11 +119,213 @@ export const ComponentRenderer: React.FC<ModuleNodeProps> = ({
 
   const isRunnableAndPending = isRunnable && module.status === ModuleStatus.Pending;
   const isSpecialModule = module.type === ModuleType.ScenarioRunner || module.type === ModuleType.PipelineExplainer;
+  const isTextBox = module.type === ModuleType.TextBox;
+  const isGroupBox = module.type === ModuleType.GroupBox;
   const moduleStatusColors = isSpecialModule ? specialModuleStatusColors : statusColors;
   
   // Different styling for special modules: rounded corners (rounded-2xl) and different shape
   const borderRadiusClass = isSpecialModule ? 'rounded-2xl' : 'rounded-lg';
   const wrapperClasses = `absolute w-56 h-auto min-h-[80px] backdrop-blur-md border ${borderRadiusClass} shadow-lg flex flex-col cursor-move ${moduleStatusColors[module.status]} ${isRunnableAndPending && !isSpecialModule ? 'border-green-600 bg-green-900/30' : ''} ${isSelected ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-blue-500' : ''}`;
+  
+  // Render TextBox
+  if (isTextBox) {
+    const text = module.parameters?.text || '';
+    const fontSize = module.parameters?.fontSize || 14;
+    const color = module.parameters?.color || '#ffffff';
+    const width = module.parameters?.width || 200;
+    const height = module.parameters?.height || 60;
+    const [isEditing, setIsEditing] = React.useState(false);
+    const [editText, setEditText] = React.useState(text);
+    const [isResizing, setIsResizing] = React.useState(false);
+    const [resizeStart, setResizeStart] = React.useState({ x: 0, y: 0, width: 0, height: 0 });
+    const textInputRef = React.useRef<HTMLTextAreaElement>(null);
+    const textBoxRef = React.useRef<HTMLDivElement>(null);
+
+    React.useEffect(() => {
+      if (isEditing && textInputRef.current) {
+        textInputRef.current.focus();
+        textInputRef.current.select();
+      }
+    }, [isEditing]);
+
+    const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      setEditText(e.target.value);
+    };
+
+    const handleTextBlur = () => {
+      setIsEditing(false);
+      if (editText !== text && onUpdateModuleParameters) {
+        onUpdateModuleParameters(module.id, { text: editText });
+      }
+    };
+
+    const handleDoubleClick = (e: MouseEvent) => {
+      e.stopPropagation();
+      setIsEditing(true);
+      setEditText(text);
+    };
+
+    const handleResizeStart = (e: MouseEvent) => {
+      e.stopPropagation();
+      setIsResizing(true);
+      setResizeStart({
+        x: e.clientX,
+        y: e.clientY,
+        width: width,
+        height: height
+      });
+    };
+
+    React.useEffect(() => {
+      if (!isResizing) return;
+
+      const handleResizeMove = (e: globalThis.MouseEvent) => {
+        if (!onUpdateModuleParameters) return;
+        const dx = (e.clientX - resizeStart.x) / scale;
+        const dy = (e.clientY - resizeStart.y) / scale;
+        const newWidth = Math.max(100, resizeStart.width + dx);
+        const newHeight = Math.max(40, resizeStart.height + dy);
+        onUpdateModuleParameters(module.id, { width: newWidth, height: newHeight });
+      };
+
+      const handleResizeEnd = () => {
+        setIsResizing(false);
+      };
+
+      window.addEventListener('mousemove', handleResizeMove);
+      window.addEventListener('mouseup', handleResizeEnd);
+
+      return () => {
+        window.removeEventListener('mousemove', handleResizeMove);
+        window.removeEventListener('mouseup', handleResizeEnd);
+      };
+    }, [isResizing, resizeStart, scale, module.id, onUpdateModuleParameters]);
+
+    return (
+      <div 
+        ref={textBoxRef}
+        className={`absolute backdrop-blur-md border rounded-lg shadow-lg flex flex-col cursor-move bg-green-900/30 border-green-500 relative ${isSelected ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-blue-500' : ''}`}
+        style={{ 
+          left: module.position.x, 
+          top: module.position.y,
+          width: `${width}px`,
+          minHeight: `${height}px`,
+          height: `${height}px`
+        }}
+        onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStart}
+        onDoubleClick={handleDoubleClick}
+      >
+        {/* Delete button in top-right corner */}
+        <button 
+          onClick={handleDelete}
+          className="absolute top-1 right-1 p-0.5 text-gray-500 hover:text-red-400 hover:bg-red-900/30 rounded transition-colors z-10"
+          title="Delete"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <XMarkIcon className="w-3 h-3" />
+        </button>
+        <div className="p-2 flex-grow overflow-auto" style={{ height: `${height - 16}px` }}>
+          {isEditing ? (
+            <textarea
+              ref={textInputRef}
+              value={editText}
+              onChange={handleTextChange}
+              onBlur={handleTextBlur}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setIsEditing(false);
+                  setEditText(text);
+                }
+                // Allow Enter for line breaks, only Escape closes editing
+              }}
+              className="w-full h-full bg-transparent border-none outline-none resize-none"
+              style={{ fontSize: `${fontSize}px`, color: color || '#90ee90' }}
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <div
+              className="w-full min-h-[20px] cursor-text whitespace-pre-wrap break-words"
+              style={{ fontSize: `${fontSize}px`, color: color || '#90ee90' }}
+              onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
+            >
+              {text || <span className="text-green-500/50 italic">텍스트를 입력하세요...</span>}
+            </div>
+          )}
+        </div>
+        {/* Resize handle */}
+        {isSelected && (
+          <div
+            className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize bg-gray-600 hover:bg-gray-500 border-t border-l border-gray-400 rounded-tl-lg"
+            onMouseDown={handleResizeStart}
+            style={{ zIndex: 20 }}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // Render GroupBox
+  if (isGroupBox) {
+    const groupData = module.parameters as { moduleIds?: string[]; bounds?: { x: number; y: number; width: number; height: number } };
+    const groupModules = allModules.filter(m => groupData?.moduleIds?.includes(m.id));
+    const isSuccess = module.status === ModuleStatus.Success;
+    
+    return (
+      <div className="absolute" style={{ left: module.position.x, top: module.position.y - 20 }}>
+        {/* Group name outside the box */}
+        <div className="mb-1">
+          <input
+            type="text"
+            value={module.name}
+            onChange={(e) => onModuleNameChange(module.id, e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-transparent text-gray-300 font-semibold border-none outline-none px-1 hover:bg-gray-800/50 rounded"
+            placeholder="그룹 이름"
+            style={{ 
+              width: `${(module.parameters?.bounds?.width || 300)}px`,
+              fontSize: `${module.parameters?.fontSize || 12}px`
+            }}
+          />
+        </div>
+        
+        {/* Group box */}
+        <div
+          className={`border-2 border-dashed rounded-lg shadow-lg cursor-move ${
+            isSuccess 
+              ? 'border-green-400 bg-green-900/10' 
+              : 'border-purple-400 bg-purple-900/10'
+          } ${isSelected ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-blue-500' : ''}`}
+          style={{
+            width: module.parameters?.bounds?.width || 300,
+            height: (module.parameters?.bounds?.height || 200) + 40, // Add extra space at bottom
+          }}
+          onMouseDown={handleMouseDown}
+          onTouchStart={handleTouchStart}
+        >
+          <div className={`flex items-center justify-end px-2 py-1 border-b rounded-t-lg h-6 flex-shrink-0 ${
+            isSuccess 
+              ? 'bg-green-900/30 border-green-400/30' 
+              : 'bg-purple-900/30 border-purple-400/30'
+          }`}>
+            <button 
+              onClick={handleDelete}
+              className={`p-0.5 rounded transition-colors ${
+                isSuccess 
+                  ? 'text-green-400 hover:text-red-400 hover:bg-red-900/30' 
+                  : 'text-purple-400 hover:text-red-400 hover:bg-red-900/30'
+              }`}
+              title="Delete Group"
+            >
+              <XMarkIcon className="w-3 h-3" />
+            </button>
+          </div>
+          {/* Extra space at bottom for execution results */}
+          <div className="h-10"></div>
+        </div>
+      </div>
+    );
+  }
   
   return (
     <div 

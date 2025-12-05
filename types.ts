@@ -48,6 +48,8 @@ export enum ModuleType {
   RateModifier = 'RateModifier',
   PipelineExplainer = 'PipelineExplainer',
   AdditionalName = 'AdditionalName',
+  TextBox = 'TextBox',
+  GroupBox = 'GroupBox',
 }
 
 export enum ModuleStatus {
@@ -296,4 +298,9 @@ export interface Connection {
     id: string;
     from: { moduleId: string; portName: string };
     to: { moduleId: string; portName: string };
+}
+
+export interface GroupBoxData {
+    moduleIds: string[];
+    bounds: { x: number; y: number; width: number; height: number };
 }
