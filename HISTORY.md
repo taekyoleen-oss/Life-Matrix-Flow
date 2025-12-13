@@ -4,6 +4,106 @@
 
 ---
 
+## [2025-12-12 15:25:48] - Samples와 My Work 기능 분리 및 개선
+
+변경 사항:
+
+- Samples와 My Work 기능을 분리하여 구현
+- Samples: 공유 샘플 저장 (파일 다운로드, 커밋/푸시 포함)
+- My Work: 개인 작업 저장 (localStorage, 개인 PC 파일 읽기)
+- Samples 탭에는 "현재 모델 저장" 버튼만 표시
+- My Work 탭에는 "파일에서 로드", "현재 모델 저장", "초기 화면으로 설정" 버튼 추가
+- 덮어쓰기 확인 다이얼로그 개선 (Samples와 My Work 모두 지원)
+- 공유 샘플은 /public/samples/samples.json에서 로드
+- 개인 작업은 localStorage에 저장
+
+영향받은 파일:
+
+- App.tsx
+- utils/samples.ts (신규 생성)
+- public/samples/samples.json (신규 생성)
+
+이유:
+- Samples는 모든 사용자와 공유되는 예시를 저장
+- My Work는 개인별로 작업을 저장하고 관리
+- 덮어쓰기 확인으로 실수로 데이터를 덮어쓰는 것을 방지
+
+복구 방법:
+
+# 백업 및 복구
+git stash push -u -m "백업"
+git reset --hard <커밋해시>
+
+# 또는 직접 복구
+git reset --hard <커밋해시>
+
+---
+
+## [2025-12-12 15:18:30] - PipelineExecutionModal 타입 오류 수정
+
+변경 사항:
+
+- PipelineExecutionModal.tsx에서 발생한 TypeScript 타입 오류 수정
+- Map에서 가져온 값의 타입 추론 문제를 타입 단언으로 해결
+- ModuleExecutionState 타입 단언 추가 (7곳)
+- logMessage 함수에서 로그 배열 타입 명시
+
+영향받은 파일:
+
+- components/PipelineExecutionModal.tsx
+
+이유:
+- TypeScript 컴파일 오류로 인해 프로젝트 실행이 불가능했음
+- Map.get()으로 가져온 값의 타입이 제대로 추론되지 않아 발생한 문제
+
+복구 방법:
+
+# 백업 및 복구
+git stash push -u -m "백업"
+git reset --hard <커밋해시>
+
+# 또는 직접 복구
+git reset --hard <커밋해시>
+
+---
+
+## [2025-01-XX] - Reserve Calculator 모듈 추가
+
+변경 사항:
+
+- Reserve Calculator 모듈 신규 추가
+- Gross Premium Calculator 결과 및 테이블 데이터를 입력으로 받아 Reserve 열 계산
+- Payment Term 조건에 따라 두 가지 수식 적용 (Payment Term ≤ m, Payment Term > m)
+- ParameterInputModal에 ReserveCalculatorParams 컴포넌트 추가
+  - 테이블 열 이름 표시
+  - Gross Premium Calculator 변수 표시
+  - 두 개의 수식 입력 필드
+  - 화살표 버튼으로 첫 번째 수식에서 두 번째 수식으로 복사 기능
+- App.tsx의 executePipeline에 ReserveCalculator 실행 로직 추가
+- codeSnippets.ts에 ReserveCalculator 코드 생성 로직 추가
+- ModuleInputSummary.tsx에 ReserveCalculator 입력 요약 추가
+
+영향받은 파일:
+
+- components/ParameterInputModal.tsx
+- App.tsx
+- codeSnippets.ts
+- components/ModuleInputSummary.tsx
+- components/icons.tsx (ChevronRightIcon import 추가)
+
+복구 방법
+
+# 백업 및 복구
+
+git stash push -u -m "백업"
+git reset --hard <커밋해시>
+
+# 또는 직접 복구
+
+git reset --hard <커밋해시>
+
+---
+
 ## [2025-12-04 15:40:57] - Scenario Runner와 Pipeline Explainer 모듈 박스상자 기능 추가 및 겹침 방지
 
 변경 사항:

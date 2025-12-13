@@ -14,8 +14,9 @@ import {
   PremiumComponentOutput,
   AdditionalVariablesOutput,
   NetPremiumOutput,
+  GrossPremiumOutput,
 } from "../types";
-import { XCircleIcon, XMarkIcon } from "./icons";
+import { XCircleIcon, XMarkIcon, PlayIcon } from "./icons";
 import { SAMPLE_DATA } from "../sampleData";
 
 interface ParameterInputModalProps {
@@ -26,6 +27,7 @@ interface ParameterInputModalProps {
   connections: Connection[];
   projectName: string;
   folderHandle: FileSystemDirectoryHandle | null;
+  onRunModule?: (id: string) => Promise<void>;
 }
 
 export const PropertyInput: React.FC<{
@@ -49,7 +51,7 @@ export const PropertyInput: React.FC<{
 }) => (
   <div>
     <label
-      className={`block ${compact ? "text-xs" : "text-sm"} text-gray-400 mb-1`}
+      className={`block ${compact ? "text-xs" : "text-xs"} text-gray-400 mb-1`}
     >
       {label}
     </label>
@@ -65,7 +67,7 @@ export const PropertyInput: React.FC<{
       disabled={disabled}
       placeholder={placeholder}
       className={`w-full bg-gray-700 border border-gray-600 rounded ${
-        compact ? "px-2 py-1 text-xs" : "px-2 py-1.5 text-sm"
+        compact ? "px-2 py-1 text-xs" : "px-2 py-1.5 text-xs"
       } focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-800 disabled:text-gray-500`}
     />
   </div>
@@ -81,7 +83,7 @@ export const PropertySelect: React.FC<{
 }> = ({ label, value, onChange, options, placeholder, compact = false }) => (
   <div>
     <label
-      className={`block ${compact ? "text-xs" : "text-sm"} text-gray-400 mb-1`}
+      className={`block ${compact ? "text-xs" : "text-xs"} text-gray-400 mb-1`}
     >
       {label}
     </label>
@@ -89,7 +91,7 @@ export const PropertySelect: React.FC<{
       value={value}
       onChange={(e) => onChange(e.target.value)}
       className={`w-full bg-gray-700 border border-gray-600 rounded ${
-        compact ? "px-2 py-1 text-xs" : "px-2 py-1.5 text-sm"
+        compact ? "px-2 py-1 text-xs" : "px-2 py-1.5 text-xs"
       } focus:outline-none focus:ring-2 focus:ring-blue-500`}
     >
       {placeholder && (
@@ -168,11 +170,17 @@ export const getGlobalPolicyInfoFromCanvas = (
     (m) => m.type === ModuleType.DefinePolicyInfo
   )?.parameters;
   if (policyModuleParams) {
+    const policyTerm =
+      policyModuleParams.policyTerm === "" ||
+      policyModuleParams.policyTerm === null ||
+      policyModuleParams.policyTerm === undefined
+        ? 0
+        : Number(policyModuleParams.policyTerm);
     return {
       type: "PolicyInfoOutput",
       entryAge: Number(policyModuleParams.entryAge),
       gender: policyModuleParams.gender,
-      policyTerm: Number(policyModuleParams.policyTerm),
+      policyTerm: policyTerm,
       paymentTerm: Number(policyModuleParams.paymentTerm),
       interestRate: Number(policyModuleParams.interestRate) / 100,
     };
@@ -234,6 +242,24 @@ export const getConnectedNetPremiumOutput = (
   return undefined;
 };
 
+export const getConnectedGrossPremiumOutput = (
+  moduleId: string,
+  portName: string,
+  allModules: CanvasModule[],
+  allConnections: Connection[]
+): GrossPremiumOutput | undefined => {
+  const inputConnection = allConnections.find(
+    (c) => c.to.moduleId === moduleId && c.to.portName === portName
+  );
+  if (!inputConnection) return undefined;
+  const sourceModule = allModules.find(
+    (m) => m.id === inputConnection.from.moduleId
+  );
+  if (sourceModule?.outputData?.type === "GrossPremiumOutput")
+    return sourceModule.outputData;
+  return undefined;
+};
+
 export const DefinePolicyInfoParams: React.FC<{
   parameters: Record<string, any>;
   onParametersChange: (newParams: Record<string, any>) => void;
@@ -272,9 +298,10 @@ export const DefinePolicyInfoParams: React.FC<{
         <PropertyInput
           label="Policy Term (years)"
           type="number"
-          value={policyTerm}
-          onChange={(v) => handleChange("policyTerm", v)}
+          value={policyTerm || ""}
+          onChange={(v) => handleChange("policyTerm", v === "" ? "" : v)}
           disabled={!!maturityAge && maturityAge > 0}
+          placeholder="Auto (max age)"
           compact={compact}
         />
         <PropertyInput
@@ -289,8 +316,9 @@ export const DefinePolicyInfoParams: React.FC<{
       <p
         className={`${compact ? "text-[10px]" : "text-xs"} text-gray-500 -mt-2`}
       >
-        If Maturity Age is set, Policy Term will be calculated as (Maturity Age
-        - Entry Age).
+        If Policy Term is empty, it will be calculated from the maximum age in
+        the data (max age - entry age + 1). If Maturity Age is set, Policy Term
+        will be calculated as (Maturity Age - Entry Age).
       </p>
 
       <PropertyInput
@@ -327,7 +355,7 @@ const SelectRiskRatesParams: React.FC<{
   moduleId,
   compact = false,
 }) => {
-  const { ageColumn, genderColumn } = parameters;
+  const { ageColumn, genderColumn, excludeNonNumericRows = true } = parameters;
 
   const dataSource = getConnectedDataSource(
     moduleId,
@@ -337,14 +365,58 @@ const SelectRiskRatesParams: React.FC<{
   );
   const columnOptions = dataSource?.columns.map((c) => c.name) || [];
 
-  const handleChange = (field: string, value: string) => {
+  const handleChange = (field: string, value: string | boolean) => {
     onParametersChange({ ...parameters, [field]: value });
   };
+
+  // Find rows with non-numeric values (excluding Age and Gender columns)
+  const rowsToExclude = useMemo(() => {
+    if (
+      !dataSource?.rows ||
+      !ageColumn ||
+      !genderColumn ||
+      !excludeNonNumericRows
+    ) {
+      return [];
+    }
+
+    const numericColumns = dataSource.columns
+      .filter((c) => c.type === "number")
+      .map((c) => c.name);
+
+    const excludeAges: number[] = [];
+    dataSource.rows.forEach((row, index) => {
+      // Check all columns except Age and Gender
+      for (const col of dataSource.columns) {
+        if (col.name === ageColumn || col.name === genderColumn) continue;
+
+        const value = row[col.name];
+        // If column is supposed to be numeric but value is not numeric, exclude this row
+        if (numericColumns.includes(col.name)) {
+          const numValue = Number(value);
+          if (
+            value !== null &&
+            value !== undefined &&
+            value !== "" &&
+            (isNaN(numValue) || !isFinite(numValue))
+          ) {
+            const age = Number(row[ageColumn]);
+            if (!isNaN(age) && !excludeAges.includes(age)) {
+              excludeAges.push(age);
+            }
+            break; // Found non-numeric value, no need to check other columns
+          }
+        }
+      }
+    });
+
+    return excludeAges.sort((a, b) => a - b);
+  }, [dataSource, ageColumn, genderColumn, excludeNonNumericRows]);
 
   if (!dataSource) {
     return (
       <p
-        className={compact ? "text-xs text-gray-500" : "text-sm text-gray-500"}
+        className={compact ? "text-xs text-gray-500" : "text-xs text-gray-500"}
       >
         Connect and run a data source to select columns.
       </p>
@@ -352,7 +424,38 @@ const SelectRiskRatesParams: React.FC<{
   }
 
   return (
-    <div className={compact ? "space-y-2" : "space-y-4"}>
+    <div className={compact ? "space-y-2" : "space-y-2"}>
+      {/* Checkbox for excluding non-numeric rows */}
+      <div className="flex items-center gap-2 mb-2">
+        <input
+          type="checkbox"
+          id="excludeNonNumericRows"
+          checked={excludeNonNumericRows}
+          onChange={(e) =>
+            handleChange("excludeNonNumericRows", e.target.checked)
+          }
+          className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+        />
+        <label
+          htmlFor="excludeNonNumericRows"
+          className="text-xs text-gray-300 cursor-pointer"
+        >
+          Exclude rows with non-numeric values (excluding Age, Gender columns)
+        </label>
+      </div>
+
+      {/* Display ages to be excluded */}
+      {excludeNonNumericRows && rowsToExclude.length > 0 && (
+        <div className="mb-2 p-2 bg-gray-800/50 rounded border border-gray-600">
+          <p className="text-[10px] text-gray-400 mb-1">
+            Rows to be excluded (Age):
+          </p>
+          <p className="text-xs text-yellow-400 font-mono">
+            {rowsToExclude.join(", ")}
+          </p>
+        </div>
+      )}
+
       <PropertySelect
         label="Age Column"
         value={ageColumn}
@@ -386,46 +489,27 @@ const NetPremiumCalculatorParams: React.FC<{
 }) => {
   const { formula, variableName } = parameters;
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
+  const [activeFormula, setActiveFormula] = useState<"formula" | "result">(
+    "formula"
+  );
 
-  const premiumComponents = getConnectedPremiumComponents(
+  // Get Additional Variables output (contains premiumComponents, variables, and data)
+  const additionalVarsOutput = getConnectedAdditionalVariables(
     moduleId,
-    "premium_components_in",
+    "additional_variables_in",
     allModules,
     allConnections
   );
-  const additionalVars = getConnectedAdditionalVariables(
-    moduleId,
-    "additional_vars_in",
-    allModules,
-    allConnections
-  );
+
+  const premiumComponents = additionalVarsOutput?.premiumComponents;
+  const additionalVars = additionalVarsOutput?.variables;
+  const additionalData = additionalVarsOutput?.data;
   const policyInfo = getGlobalPolicyInfoFromCanvas(allModules);
 
-  const availableVars = useMemo(() => {
-    const vars = [];
-    if (premiumComponents) {
-      vars.push(
-        ...Object.keys(premiumComponents.nnxResults).map((k) => ({
-          key: k,
-          type: "NNX",
-        }))
-      );
-      vars.push({ key: "SUMX", type: "SUMX" });
-    }
-    if (additionalVars) {
-      vars.push(
-        ...Object.keys(additionalVars.variables).map((k) => ({
-          key: k,
-          type: "ADDITIONAL",
-        }))
-      );
-    }
-    if (policyInfo) {
-      vars.push({ key: "m", type: "POLICY", label: "m (Payment)" });
-      vars.push({ key: "n", type: "POLICY", label: "n (Term)" });
-    }
-    return vars;
-  }, [premiumComponents, additionalVars, policyInfo]);
+  // Get table columns from Additional Variable's data
+  const availableColumns = useMemo(() => {
+    return additionalData?.columns.map((c) => c.name) || [];
+  }, [additionalData]);
 
   const handleFormulaChange = (value: string) => {
     onParametersChange({ ...parameters, formula: value });
@@ -493,15 +577,15 @@ const NetPremiumCalculatorParams: React.FC<{
   const getVarColor = (type: string) => {
     switch (type) {
       case "NNX":
-        return "bg-blue-600 hover:bg-blue-500 text-white";
-      case "SUMX":
-        return "bg-green-600 hover:bg-green-500 text-white";
+        return "bg-blue-600 hover:bg-blue-500";
+      case "MMX":
+        return "bg-green-600 hover:bg-green-500";
       case "POLICY":
-        return "bg-purple-600 hover:bg-purple-500 text-white";
+        return "bg-purple-600 hover:bg-purple-500";
       case "ADDITIONAL":
-        return "bg-amber-600 hover:bg-amber-500 text-white";
+        return "bg-amber-600 hover:bg-amber-500";
       default:
-        return "bg-gray-600 hover:bg-gray-500 text-gray-200";
+        return "bg-gray-600 hover:bg-gray-500";
     }
   };
 
@@ -509,17 +593,34 @@ const NetPremiumCalculatorParams: React.FC<{
     if (!formula) return null;
     const parts = formula.split(/(\[[^\]]+\])/g);
     return (
-      <div className="mt-2 p-2 bg-gray-800 rounded border border-gray-700 flex flex-wrap gap-1 items-center font-mono text-sm">
-        <span className="text-gray-500 text-xs w-full uppercase font-bold mb-1">
+      <div className="mt-2 p-2 bg-gray-800 rounded border border-gray-700 flex flex-wrap gap-1 items-center font-mono text-xs">
+        <span className="text-gray-500 text-[10px] w-full uppercase font-bold mb-1">
           Live Preview
         </span>
         {parts.map((part, i) => {
           if (part.startsWith("[") && part.endsWith("]")) {
             const key = part.slice(1, -1);
-            const variable = availableVars.find((v) => v.key === key);
-            const colorClass = variable
-              ? getVarColor(variable.type).replace("hover:", "")
-              : "bg-gray-600 text-gray-300";
+            // Determine color based on variable type
+            let colorClass = "bg-gray-600 text-gray-300";
+            if (
+              premiumComponents?.nnxResults &&
+              Object.keys(premiumComponents.nnxResults).includes(key)
+            ) {
+              colorClass = "bg-blue-600 text-white";
+            } else if (key === "MMX" || key === "SUMX") {
+              colorClass = "bg-green-600 text-white";
+            } else if (key === "PP" || key === variableName) {
+              colorClass = "bg-green-600 text-white";
+            } else if (
+              additionalVars &&
+              Object.keys(additionalVars).includes(key)
+            ) {
+              colorClass = "bg-amber-600 text-white";
+            } else if (key === "m" || key === "n") {
+              colorClass = "bg-purple-600 text-white";
+            } else if (availableColumns.includes(key)) {
+              colorClass = "bg-gray-600 text-gray-200";
+            }
             return (
               <span
                 key={i}
@@ -540,48 +641,23 @@ const NetPremiumCalculatorParams: React.FC<{
     );
   };
 
+  if (!additionalVarsOutput) {
+    return (
+      <p className="text-sm text-gray-500">
+        Connect 'Additional Variables' to see variables and table columns.
+      </p>
+    );
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 w-full">
       <div>
-        <h4 className="text-sm text-gray-400 font-bold mb-2">
-          Available Variables (Click to Insert)
+        <h4 className="text-xs text-gray-400 font-bold mb-3">
+          Net Premium Calculator
         </h4>
-        {availableVars.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {availableVars.map((v) => (
-              <button
-                key={v.key}
-                onClick={() => insertToken(v.key)}
-                className={`${getVarColor(
-                  v.type
-                )} text-xs font-mono px-3 py-1.5 rounded-md transition-colors shadow-sm border border-white/10`}
-                title={`Insert [${v.key}]`}
-              >
-                {v.label || v.key}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-gray-500">
-            Connect 'Premium Component' or 'Additional Name' to see variables.
-          </p>
-        )}
-      </div>
-      <div className="flex gap-4 items-start">
-        <div className="flex-grow">
-          <label className="block text-sm text-gray-400 mb-1">
-            Net Premium Formula
-          </label>
-          <textarea
-            ref={textAreaRef}
-            value={formula}
-            onChange={(e) => handleFormulaChange(e.target.value)}
-            onKeyDown={handleKeyDown}
-            className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[100px]"
-            placeholder="e.g. [SUMX] / [NNX_Male_Mortality] + [Extra_Loading]"
-          />
-        </div>
-        <div className="w-32 flex-shrink-0">
+
+        {/* Variable Name Input */}
+        <div className="mb-4">
           <PropertyInput
             label="Variable Name"
             value={variableName || "PP"}
@@ -589,14 +665,193 @@ const NetPremiumCalculatorParams: React.FC<{
             placeholder="PP"
           />
         </div>
+
+        {/* Main Layout: Left (Input Variables) and Right (Formula) */}
+        <div className="flex gap-6 w-full">
+          {/* Left Side: Input Variables */}
+          <div className="w-2/5 flex flex-col gap-4">
+            {/* NNX MMX Calculator Variables */}
+            {premiumComponents && (
+              <div className="flex-1 bg-gray-900/50 p-3 rounded-md border border-gray-600">
+                <label className="block text-xs text-gray-400 font-bold mb-2">
+                  NNX MMX Calculator Variables
+                </label>
+                <div className="flex flex-wrap gap-1.5 max-h-[200px] overflow-y-auto panel-scrollbar">
+                  {Object.keys(premiumComponents.nnxResults).map((k) => (
+                    <button
+                      key={k}
+                      onClick={() => insertToken(`[${k}]`)}
+                      className="bg-blue-600 hover:bg-blue-500 text-xs font-mono px-2.5 py-1.5 rounded-md transition-colors shadow-sm border border-white/10"
+                      title={`Insert [${k}]`}
+                    >
+                      {k}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => insertToken("[MMX]")}
+                    className="bg-green-600 hover:bg-green-500 text-xs font-mono px-2.5 py-1.5 rounded-md transition-colors shadow-sm border border-white/10"
+                    title="Insert [MMX]"
+                  >
+                    MMX
+                  </button>
+                  {/* Add PP (Net Premium) if available from previous execution */}
+                  {(() => {
+                    const currentModule = allModules.find(
+                      (m) => m.id === moduleId
+                    );
+                    const output = currentModule?.outputData as
+                      | NetPremiumOutput
+                      | undefined;
+                    if (output && output.type === "NetPremiumOutput") {
+                      return (
+                        <button
+                          onClick={() =>
+                            insertToken(`[${variableName || "PP"}]`)
+                          }
+                          className="bg-green-600 hover:bg-green-500 text-xs font-mono px-2.5 py-1.5 rounded-md transition-colors shadow-sm border border-white/10"
+                          title={`Insert [${variableName || "PP"}]`}
+                        >
+                          {variableName || "PP"}
+                        </button>
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {/* Additional Variables */}
+            {additionalVars && Object.keys(additionalVars).length > 0 && (
+              <div className="flex-1 bg-gray-900/50 p-3 rounded-md border border-gray-600">
+                <label className="block text-xs text-gray-400 font-bold mb-2">
+                  Additional Variables
+                </label>
+                <div className="flex flex-wrap gap-1.5 max-h-[200px] overflow-y-auto panel-scrollbar">
+                  {Object.keys(additionalVars).map((k) => (
+                    <button
+                      key={k}
+                      onClick={() => insertToken(`[${k}]`)}
+                      className="bg-amber-600 hover:bg-amber-500 text-xs font-mono px-2.5 py-1.5 rounded-md transition-colors shadow-sm border border-white/10"
+                      title={`Insert [${k}]`}
+                    >
+                      {k}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Table Columns */}
+            {availableColumns.length > 0 && (
+              <div className="flex-1 bg-gray-900/50 p-3 rounded-md border border-gray-600">
+                <label className="block text-xs text-gray-400 font-bold mb-2">
+                  Table Columns
+                </label>
+                <div className="flex flex-wrap gap-1.5 max-h-[200px] overflow-y-auto panel-scrollbar">
+                  {availableColumns.map((col) => (
+                    <button
+                      key={col}
+                      onClick={() => insertToken(`[${col}]`)}
+                      className="px-2.5 py-1.5 bg-gray-600 hover:bg-gray-500 rounded-md text-xs text-gray-200 whitespace-nowrap transition-colors"
+                      title={`Insert [${col}]`}
+                    >
+                      {col}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Policy Variables */}
+            {policyInfo && (
+              <div className="bg-gray-900/50 p-3 rounded-md border border-gray-600">
+                <label className="block text-xs text-gray-400 font-bold mb-2">
+                  Policy Variables
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    onClick={() => insertToken("[m]")}
+                    className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 rounded-md text-xs text-gray-200 whitespace-nowrap transition-colors"
+                    title="Payment Term"
+                  >
+                    m
+                  </button>
+                  <button
+                    onClick={() => insertToken("[n]")}
+                    className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 rounded-md text-xs text-gray-200 whitespace-nowrap transition-colors"
+                    title="Policy Term"
+                  >
+                    n
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right Side: Formula and Result */}
+          <div className="w-3/5 flex flex-col gap-4">
+            {/* Formula Input */}
+            <div className="flex-1 bg-gray-900/50 p-3 rounded-md border border-gray-600">
+              <label className="block text-xs text-gray-400 font-bold mb-2">
+                Net Premium Formula
+              </label>
+              <textarea
+                ref={textAreaRef}
+                value={formula}
+                onChange={(e) => handleFormulaChange(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onFocus={() => setActiveFormula("formula")}
+                className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2 min-h-[140px] resize-none"
+                placeholder="e.g. [MMX] / [NNX_Male_Mortality] + [α1]"
+              />
+              {renderPreview()}
+            </div>
+
+            {/* Net Premium Result (if module has been executed) */}
+            {(() => {
+              const currentModule = allModules.find((m) => m.id === moduleId);
+              const output = currentModule?.outputData as
+                | NetPremiumOutput
+                | undefined;
+              if (output && output.type === "NetPremiumOutput") {
+                return (
+                  <div className="bg-gray-900/50 p-3 rounded-md border border-gray-600">
+                    <label className="block text-xs text-gray-400 font-bold mb-2">
+                      Net Premium Result
+                    </label>
+                    <div className="bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm font-mono">
+                      <div className="text-gray-300 mb-1">
+                        <span className="text-gray-500">Variable:</span>{" "}
+                        <span className="text-blue-400">
+                          {variableName || "PP"}
+                        </span>
+                      </div>
+                      <div className="text-white text-lg font-bold">
+                        {new Intl.NumberFormat("en-US", {
+                          maximumFractionDigits: 6,
+                        }).format(output.netPremium)}
+                      </div>
+                      {output.substitutedFormula && (
+                        <div className="text-gray-400 text-xs mt-2">
+                          <span className="text-gray-500">Substituted:</span>{" "}
+                          {output.substitutedFormula}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+          </div>
+        </div>
+
+        <p className="text-xs text-gray-500 mt-4">
+          조건문 지원: IF(condition, true_value, false_value) 형식을 사용할 수
+          있습니다. 예: IF([Age] &gt; 50, [PP] * 1.1, [PP])
+        </p>
       </div>
-      {renderPreview()}
-      <p className="text-xs text-gray-500">
-        Variables are treated as objects. Use the buttons above to insert them.
-        Standard math operators (+, -, *, /, ()) are supported. 조건문 지원:
-        IF(condition, true_value, false_value) 형식을 사용할 수 있습니다. 예:
-        IF([Age] &gt; 50, [PP] * 1.1, [PP])
-      </p>
     </div>
   );
 };
@@ -616,6 +871,9 @@ const GrossPremiumCalculatorParams: React.FC<{
 }) => {
   const { formula, variableName } = parameters;
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
+  const [activeFormula, setActiveFormula] = useState<"formula" | "result">(
+    "formula"
+  );
 
   const netPremiumOutput = getConnectedNetPremiumOutput(
     moduleId,
@@ -623,40 +881,100 @@ const GrossPremiumCalculatorParams: React.FC<{
     allModules,
     allConnections
   );
-  const additionalVars = getConnectedAdditionalVariables(
-    moduleId,
-    "additional_vars_in",
-    allModules,
-    allConnections
-  );
 
-  const availableVars = useMemo(() => {
-    const vars = [];
-    if (netPremiumOutput) {
-      const ppName =
-        netPremiumOutput.variables?.["PP"] !== undefined
-          ? "PP"
-          : Object.keys(netPremiumOutput.variables).pop() || "PP";
-      vars.push({ key: "PP", type: "NET_PREMIUM", label: "PP (Net Premium)" });
-      // Inherit context variables from NetPremiumOutput
-      if (netPremiumOutput.variables) {
-        vars.push(
-          ...Object.keys(netPremiumOutput.variables)
-            .filter((k) => k !== "PP" && k !== ppName)
-            .map((k) => ({ key: k, type: "INHERITED" }))
-        );
+  // Find Net Premium Calculator module to get its Additional Variables input
+  const netPremiumModule = useMemo(() => {
+    if (!netPremiumOutput || !allModules || !allConnections) return null;
+    const netPremiumConn = allConnections.find(
+      (c) => c.to.moduleId === moduleId && c.to.portName === "net_premium_in"
+    );
+    if (netPremiumConn) {
+      return allModules.find((m) => m.id === netPremiumConn.from.moduleId);
+    }
+    return null;
+  }, [netPremiumOutput, allModules, allConnections, moduleId]);
+
+  // Get Additional Variables Output from Net Premium Calculator's input
+  const additionalVarsOutput = useMemo(() => {
+    if (!netPremiumModule || !allConnections) return null;
+    const additionalVarsConn = allConnections.find(
+      (c) =>
+        c.to.moduleId === netPremiumModule.id &&
+        c.to.portName === "additional_variables_in"
+    );
+    if (additionalVarsConn) {
+      const additionalVarModule = allModules?.find(
+        (m) => m.id === additionalVarsConn.from.moduleId
+      );
+      if (
+        additionalVarModule?.outputData?.type === "AdditionalVariablesOutput"
+      ) {
+        return additionalVarModule.outputData as AdditionalVariablesOutput;
       }
     }
-    if (additionalVars) {
-      vars.push(
-        ...Object.keys(additionalVars.variables).map((k) => ({
-          key: k,
-          type: "ADDITIONAL",
-        }))
-      );
+    return null;
+  }, [netPremiumModule, allModules, allConnections]);
+
+  const premiumComponents = additionalVarsOutput?.premiumComponents;
+  const additionalVars = additionalVarsOutput?.variables;
+  const additionalData = additionalVarsOutput?.data;
+  const policyInfo = getGlobalPolicyInfoFromCanvas(allModules);
+
+  // Get table columns from Additional Variable's data
+  const availableColumns = useMemo(() => {
+    return additionalData?.columns.map((c) => c.name) || [];
+  }, [additionalData]);
+
+  // Categorize variables from Net Premium Output similar to Net Premium Calculator
+  const premiumComponentVars = useMemo(() => {
+    const vars: string[] = [];
+    if (netPremiumOutput?.variables) {
+      // NNX variables (typically start with NNX_)
+      Object.keys(netPremiumOutput.variables).forEach((k) => {
+        if (k.startsWith("NNX_")) {
+          vars.push(k);
+        }
+      });
+      // MMX
+      if (netPremiumOutput.variables["MMX"] !== undefined) {
+        vars.push("MMX");
+      }
+      // PP (Net Premium result)
+      const ppName =
+        netPremiumOutput.variables["PP"] !== undefined
+          ? "PP"
+          : Object.keys(netPremiumOutput.variables).find(
+              (k) =>
+                !k.startsWith("NNX_") &&
+                k !== "MMX" &&
+                k !== "m" &&
+                k !== "n" &&
+                !additionalVars?.[k]
+            ) || "PP";
+      if (netPremiumOutput.variables[ppName] !== undefined) {
+        vars.push(ppName);
+      }
     }
     return vars;
   }, [netPremiumOutput, additionalVars]);
+
+  const additionalVarKeys = useMemo(() => {
+    if (additionalVars) {
+      return Object.keys(additionalVars);
+    }
+    // Fallback: extract from netPremiumOutput.variables if not in premiumComponentVars
+    if (netPremiumOutput?.variables) {
+      return Object.keys(netPremiumOutput.variables).filter(
+        (k) =>
+          !k.startsWith("NNX_") &&
+          k !== "MMX" &&
+          k !== "PP" &&
+          k !== "m" &&
+          k !== "n"
+      );
+    }
+    return [];
+  }, [additionalVars, netPremiumOutput]);
 
   const handleFormulaChange = (value: string) => {
     onParametersChange({ ...parameters, formula: value });
@@ -724,13 +1042,13 @@ const GrossPremiumCalculatorParams: React.FC<{
   const getVarColor = (type: string) => {
     switch (type) {
       case "NET_PREMIUM":
-        return "bg-green-600 hover:bg-green-500 text-white";
+        return "bg-green-600 hover:bg-green-500";
       case "INHERITED":
-        return "bg-blue-600 hover:bg-blue-500 text-white";
+        return "bg-blue-600 hover:bg-blue-500";
       case "ADDITIONAL":
-        return "bg-amber-600 hover:bg-amber-500 text-white";
+        return "bg-amber-600 hover:bg-amber-500";
       default:
-        return "bg-gray-600 hover:bg-gray-500 text-gray-200";
+        return "bg-gray-600 hover:bg-gray-500";
     }
   };
 
@@ -738,17 +1056,28 @@ const GrossPremiumCalculatorParams: React.FC<{
     if (!formula) return null;
     const parts = formula.split(/(\[[^\]]+\])/g);
     return (
-      <div className="mt-2 p-2 bg-gray-800 rounded border border-gray-700 flex flex-wrap gap-1 items-center font-mono text-sm">
-        <span className="text-gray-500 text-xs w-full uppercase font-bold mb-1">
+      <div className="mt-2 p-2 bg-gray-800 rounded border border-gray-700 flex flex-wrap gap-1 items-center font-mono text-xs">
+        <span className="text-gray-500 text-[10px] w-full uppercase font-bold mb-1">
           Live Preview
         </span>
         {parts.map((part, i) => {
           if (part.startsWith("[") && part.endsWith("]")) {
             const key = part.slice(1, -1);
-            const variable = availableVars.find((v) => v.key === key);
-            const colorClass = variable
-              ? getVarColor(variable.type).replace("hover:", "")
-              : "bg-gray-600 text-gray-300";
+            // Check if it's a premium component var, additional var, or policy var
+            let colorClass = "bg-gray-600 text-gray-300";
+            if (premiumComponentVars.includes(key)) {
+              colorClass = "bg-blue-600 text-white";
+            } else if (key === "MMX") {
+              colorClass = "bg-green-600 text-white";
+            } else if (key === "PP" || key === variableName || key === "GP") {
+              colorClass = "bg-green-600 text-white";
+            } else if (additionalVarKeys.includes(key)) {
+              colorClass = "bg-amber-600 text-white";
+            } else if (key === "m" || key === "n") {
+              colorClass = "bg-purple-600 text-white";
+            } else if (availableColumns.includes(key)) {
+              colorClass = "bg-gray-600 text-gray-200";
+            }
             return (
               <span
                 key={i}
@@ -769,48 +1098,23 @@ const GrossPremiumCalculatorParams: React.FC<{
     );
   };
 
+  if (!netPremiumOutput) {
+    return (
+      <p className="text-sm text-gray-500">
+        Connect 'Net Premium Calculator' to see variables.
+      </p>
+    );
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 w-full">
       <div>
-        <h4 className="text-sm text-gray-400 font-bold mb-2">
-          Available Variables (Click to Insert)
+        <h4 className="text-xs text-gray-400 font-bold mb-3">
+          Gross Premium Calculator
         </h4>
-        {availableVars.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {availableVars.map((v) => (
-              <button
-                key={v.key}
-                onClick={() => insertToken(v.key)}
-                className={`${getVarColor(
-                  v.type
-                )} text-xs font-mono px-3 py-1.5 rounded-md transition-colors shadow-sm border border-white/10`}
-                title={`Insert [${v.key}]`}
-              >
-                {v.label || v.key}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-gray-500">
-            Connect 'Net Premium Calculator' to see variables.
-          </p>
-        )}
-      </div>
-      <div className="flex gap-4 items-start">
-        <div className="flex-grow">
-          <label className="block text-sm text-gray-400 mb-1">
-            Gross Premium Formula
-          </label>
-          <textarea
-            ref={textAreaRef}
-            value={formula}
-            onChange={(e) => handleFormulaChange(e.target.value)}
-            onKeyDown={handleKeyDown}
-            className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[100px]"
-            placeholder="e.g. [PP] / (1 - [Expense_Ratio])"
-          />
-        </div>
-        <div className="w-32 flex-shrink-0">
+
+        {/* Variable Name Input */}
+        <div className="mb-4">
           <PropertyInput
             label="Variable Name"
             value={variableName || "GP"}
@@ -818,14 +1122,129 @@ const GrossPremiumCalculatorParams: React.FC<{
             placeholder="GP"
           />
         </div>
+
+        {/* Main Layout: Left (Input Variables) and Right (Formula) */}
+        <div className="flex gap-6 w-full">
+          {/* Left Side: Input Variables */}
+          <div className="w-2/5 flex flex-col gap-4">
+            {/* NNX MMX Calculator Variables */}
+            {premiumComponentVars.length > 0 && (
+              <div className="flex-1 bg-gray-900/50 p-3 rounded-md border border-gray-600">
+                <label className="block text-xs text-gray-400 font-bold mb-2">
+                  NNX MMX Calculator Variables
+                </label>
+                <div className="flex flex-wrap gap-1.5 max-h-[200px] overflow-y-auto panel-scrollbar">
+                  {premiumComponentVars.map((k) => (
+                    <button
+                      key={k}
+                      onClick={() => insertToken(`[${k}]`)}
+                      className={
+                        k === "MMX" || k === "PP" || k === variableName
+                          ? "bg-green-600 hover:bg-green-500 text-xs font-mono px-2.5 py-1.5 rounded-md transition-colors shadow-sm border border-white/10"
+                          : "bg-blue-600 hover:bg-blue-500 text-xs font-mono px-2.5 py-1.5 rounded-md transition-colors shadow-sm border border-white/10"
+                      }
+                      title={`Insert [${k}]`}
+                    >
+                      {k}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Additional Variables */}
+            {additionalVarKeys.length > 0 && (
+              <div className="flex-1 bg-gray-900/50 p-3 rounded-md border border-gray-600">
+                <label className="block text-xs text-gray-400 font-bold mb-2">
+                  Additional Variables
+                </label>
+                <div className="flex flex-wrap gap-1.5 max-h-[200px] overflow-y-auto panel-scrollbar">
+                  {additionalVarKeys.map((k) => (
+                    <button
+                      key={k}
+                      onClick={() => insertToken(`[${k}]`)}
+                      className="bg-amber-600 hover:bg-amber-500 text-xs font-mono px-2.5 py-1.5 rounded-md transition-colors shadow-sm border border-white/10"
+                      title={`Insert [${k}]`}
+                    >
+                      {k}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Table Columns */}
+            {availableColumns.length > 0 && (
+              <div className="flex-1 bg-gray-900/50 p-3 rounded-md border border-gray-600">
+                <label className="block text-xs text-gray-400 font-bold mb-2">
+                  Table Columns
+                </label>
+                <div className="flex flex-wrap gap-1.5 max-h-[200px] overflow-y-auto panel-scrollbar">
+                  {availableColumns.map((col) => (
+                    <button
+                      key={col}
+                      onClick={() => insertToken(`[${col}]`)}
+                      className="px-2.5 py-1.5 bg-gray-600 hover:bg-gray-500 rounded-md text-xs text-gray-200 whitespace-nowrap transition-colors"
+                      title={`Insert [${col}]`}
+                    >
+                      {col}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Policy Variables */}
+            {policyInfo && (
+              <div className="bg-gray-900/50 p-3 rounded-md border border-gray-600">
+                <label className="block text-xs text-gray-400 font-bold mb-2">
+                  Policy Variables
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    onClick={() => insertToken("[m]")}
+                    className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 rounded-md text-xs text-gray-200 whitespace-nowrap transition-colors"
+                    title="Payment Term"
+                  >
+                    m
+                  </button>
+                  <button
+                    onClick={() => insertToken("[n]")}
+                    className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 rounded-md text-xs text-gray-200 whitespace-nowrap transition-colors"
+                    title="Policy Term"
+                  >
+                    n
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right Side: Formula */}
+          <div className="w-3/5 flex flex-col gap-4">
+            <div className="flex-1 bg-gray-900/50 p-3 rounded-md border border-gray-600">
+              <label className="block text-xs text-gray-400 font-bold mb-2">
+                Gross Premium Formula
+              </label>
+              <textarea
+                ref={textAreaRef}
+                value={formula}
+                onChange={(e) => handleFormulaChange(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onFocus={() => setActiveFormula("formula")}
+                className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2 min-h-[140px] resize-none"
+                placeholder="e.g. [PP] / (1 - 0.0)"
+              />
+              {renderPreview()}
+            </div>
+          </div>
+        </div>
+
+        <p className="text-xs text-gray-500 mt-4">
+          조건문 지원: IF(condition, true_value, false_value) 형식을 사용할 수
+          있습니다. 예: IF([PP] &gt; 1000, [PP] / (1 - 0.1), [PP] / (1 - 0.05))
+        </p>
       </div>
-      {renderPreview()}
-      <p className="text-xs text-gray-500">
-        Use [PP] for Net Premium. Inherited variables from Net Premium are also
-        available. 조건문 지원: IF(condition, true_value, false_value) 형식을
-        사용할 수 있습니다. 예: IF([PP] &gt; 1000, [PP] / (1 - 0.1), [PP] / (1 -
-        0.05))
-      </p>
     </div>
   );
 };
@@ -844,12 +1263,16 @@ const AdditionalNameParams: React.FC<{
   moduleId,
 }) => {
   const { definitions = [], basicValues = [] } = parameters;
-  const dataSource = getConnectedDataSource(
+
+  // Get data from NNX MMX Calculator output
+  const premiumComponents = getConnectedPremiumComponents(
     moduleId,
-    "data_in",
+    "premium_components_in",
     allModules,
     allConnections
   );
+  const dataSource = premiumComponents?.data; // Get table data from NNX MMX Calculator output
+
   const policyInfo = getGlobalPolicyInfoFromCanvas(allModules);
   const columns = dataSource?.columns.map((c) => c.name) || [];
 
@@ -919,8 +1342,7 @@ const AdditionalNameParams: React.FC<{
   if (!dataSource)
     return (
       <p className="text-sm text-gray-500">
-        Connect and run 'Nx Mx Calculator' (or any data source) to enable
-        variable lookup.
+        Connect 'NNX MMX Calculator' to enable variable lookup.
       </p>
     );
 
@@ -928,7 +1350,7 @@ const AdditionalNameParams: React.FC<{
     <div className="space-y-6">
       {/* Basic Loadings Section */}
       <div>
-        <h4 className="text-sm text-gray-400 font-bold mb-2">Basic Loadings</h4>
+        <h4 className="text-xs text-gray-400 font-bold mb-2">Basic Loadings</h4>
         <div className="grid grid-cols-5 gap-2">
           {basicValues.map((bv: any, index: number) => (
             <div
@@ -955,7 +1377,7 @@ const AdditionalNameParams: React.FC<{
                   )
                 }
                 step="0.001"
-                className="w-full bg-gray-700 text-center text-white border border-gray-600 rounded px-1 py-1 text-sm font-mono focus:outline-none focus:border-blue-500"
+                className="w-full bg-gray-700 text-center text-white border border-gray-600 rounded px-1 py-1 text-xs font-mono focus:outline-none focus:border-blue-500"
               />
             </div>
           ))}
@@ -964,7 +1386,7 @@ const AdditionalNameParams: React.FC<{
 
       {/* Custom Variables Section */}
       <div className="space-y-4">
-        <h4 className="text-sm text-gray-400 font-bold mb-2">
+        <h4 className="text-xs text-gray-400 font-bold mb-2">
           Additional Variable Definitions
         </h4>
         <div className="space-y-3">
@@ -981,8 +1403,10 @@ const AdditionalNameParams: React.FC<{
               </button>
 
               {/* Name Input */}
-              <div className="flex items-center bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm h-[38px] w-full">
-                <span className="text-gray-400 mr-2 font-bold">Var Name:</span>
+              <div className="flex items-center bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs h-[38px] w-full">
+                <span className="text-gray-400 mr-2 font-bold text-xs">
+                  Var Name:
+                </span>
                 <input
                   type="text"
                   placeholder="e.g. Extra_Loading"
@@ -995,7 +1419,7 @@ const AdditionalNameParams: React.FC<{
               </div>
 
               {/* Type Selector */}
-              <div className="flex gap-4 text-sm">
+              <div className="flex gap-4 text-xs">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="radio"
@@ -1087,7 +1511,7 @@ const AdditionalNameParams: React.FC<{
         </div>
         <button
           onClick={handleAddDefinition}
-          className="w-full mt-2 px-3 py-2 text-sm bg-blue-600 hover:bg-blue-500 rounded-md font-semibold"
+          className="w-full mt-2 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 rounded-md font-semibold"
         >
           Add Variable
         </button>
@@ -1152,18 +1576,18 @@ const LoadDataParams: React.FC<{
         accept=".csv"
         className="hidden"
       />
-      <label className="block text-sm text-gray-400 mb-1">Source</label>
+      <label className="block text-xs text-gray-400 mb-1">Source</label>
       <div className="flex gap-2 mb-4">
         <input
           type="text"
           value={parameters.source}
           readOnly
-          className="flex-grow bg-gray-900 border border-gray-600 rounded px-2 py-1.5 text-sm"
+          className="flex-grow bg-gray-900 border border-gray-600 rounded px-2 py-1.5 text-xs"
           placeholder="No file selected"
         />
         <button
           onClick={handleBrowseClick}
-          className="px-3 py-1.5 text-sm bg-gray-600 hover:bg-gray-500 rounded-md font-semibold"
+          className="px-3 py-1.5 text-xs bg-gray-600 hover:bg-gray-500 rounded-md font-semibold"
         >
           Browse...
         </button>
@@ -1177,7 +1601,7 @@ const LoadDataParams: React.FC<{
             <div
               key={sample.name}
               onDoubleClick={() => handleLoadSample(sample)}
-              className="px-2 py-1.5 text-sm rounded-md hover:bg-gray-700 cursor-pointer"
+              className="px-2 py-1.5 text-xs rounded-md hover:bg-gray-700 cursor-pointer"
               title="Double-click to load"
             >
               {sample.name}
@@ -1353,6 +1777,444 @@ const SelectDataParams: React.FC<{
   );
 };
 
+const ReserveCalculatorParams: React.FC<{
+  parameters: Record<string, any>;
+  onParametersChange: (newParams: Record<string, any>) => void;
+  allModules: CanvasModule[];
+  allConnections: Connection[];
+  moduleId: string;
+}> = ({
+  parameters,
+  onParametersChange,
+  allModules,
+  allConnections,
+  moduleId,
+}) => {
+  const {
+    formulaForPaymentTermOrLess,
+    formulaForGreaterThanPaymentTerm,
+    reserveColumnName = "Reserve",
+  } = parameters;
+
+  const formula1Ref = useRef<HTMLTextAreaElement>(null);
+  const formula2Ref = useRef<HTMLTextAreaElement>(null);
+  const [activeFormula, setActiveFormula] = useState<"formula1" | "formula2">(
+    "formula1"
+  );
+
+  // Get Gross Premium Calculator output
+  const grossPremiumOutput = getConnectedGrossPremiumOutput(
+    moduleId,
+    "gross_premium_in",
+    allModules,
+    allConnections
+  );
+
+  const grossPremiumVars = grossPremiumOutput?.variables || {};
+  const tableData = grossPremiumOutput?.data;
+  const policyInfo = getGlobalPolicyInfoFromCanvas(allModules);
+
+  // Find Gross Premium Calculator module to get its Net Premium Calculator input
+  const grossPremiumModule = useMemo(() => {
+    if (!grossPremiumOutput || !allModules || !allConnections) return null;
+    const grossPremiumConn = allConnections.find(
+      (c) => c.to.moduleId === moduleId && c.to.portName === "gross_premium_in"
+    );
+    if (grossPremiumConn) {
+      return allModules.find((m) => m.id === grossPremiumConn.from.moduleId);
+    }
+    return null;
+  }, [grossPremiumOutput, allModules, allConnections, moduleId]);
+
+  // Find Net Premium Calculator module from Gross Premium Calculator's input
+  const netPremiumModule = useMemo(() => {
+    if (!grossPremiumModule || !allConnections) return null;
+    const netPremiumConn = allConnections.find(
+      (c) =>
+        c.to.moduleId === grossPremiumModule.id &&
+        c.to.portName === "net_premium_in"
+    );
+    if (netPremiumConn) {
+      return allModules?.find((m) => m.id === netPremiumConn.from.moduleId);
+    }
+    return null;
+  }, [grossPremiumModule, allModules, allConnections]);
+
+  // Get Additional Variables Output from Net Premium Calculator's input
+  const additionalVarsOutput = useMemo(() => {
+    if (!netPremiumModule || !allConnections) return null;
+    const additionalVarsConn = allConnections.find(
+      (c) =>
+        c.to.moduleId === netPremiumModule.id &&
+        c.to.portName === "additional_variables_in"
+    );
+    if (additionalVarsConn) {
+      const additionalVarModule = allModules?.find(
+        (m) => m.id === additionalVarsConn.from.moduleId
+      );
+      if (
+        additionalVarModule?.outputData?.type === "AdditionalVariablesOutput"
+      ) {
+        return additionalVarModule.outputData as AdditionalVariablesOutput;
+      }
+    }
+    return null;
+  }, [netPremiumModule, allModules, allConnections]);
+
+  const additionalVars = additionalVarsOutput?.variables;
+
+  // Get table columns from Gross Premium Calculator's data
+  const availableColumns = useMemo(() => {
+    return tableData?.columns.map((c) => c.name) || [];
+  }, [tableData]);
+
+  // Categorize variables from Gross Premium Output similar to Gross Premium Calculator
+  // Exclude table columns (those ending with _Col) from Premium Variables
+  const premiumComponentVars = useMemo(() => {
+    const vars: string[] = [];
+    if (grossPremiumVars) {
+      // NNX variables (typically start with NNX_) - exclude table columns ending with _Col
+      Object.keys(grossPremiumVars).forEach((k) => {
+        if (k.startsWith("NNX_") && !k.endsWith("_Col")) {
+          vars.push(k);
+        }
+      });
+      // MMX (variable, not table column MMX_Col)
+      if (grossPremiumVars["MMX"] !== undefined) {
+        vars.push("MMX");
+      }
+      // PP (Net Premium result) - exclude if it ends with _Col
+      const ppName =
+        grossPremiumVars["PP"] !== undefined && !grossPremiumVars["PP_Col"]
+          ? "PP"
+          : Object.keys(grossPremiumVars).find(
+              (k) =>
+                !k.startsWith("NNX_") &&
+                k !== "MMX" &&
+                k !== "MMX_Col" &&
+                k !== "GP" &&
+                k !== "m" &&
+                k !== "n" &&
+                !k.endsWith("_Col") &&
+                !additionalVars?.[k] &&
+                !availableColumns.includes(k) // Exclude table columns
+            ) || "PP";
+      if (grossPremiumVars[ppName] !== undefined && !ppName.endsWith("_Col")) {
+        vars.push(ppName);
+      }
+      // GP (Gross Premium result) - exclude if it ends with _Col
+      if (grossPremiumVars["GP"] !== undefined && !grossPremiumVars["GP_Col"]) {
+        vars.push("GP");
+      }
+    }
+    return vars;
+  }, [grossPremiumVars, additionalVars, availableColumns]);
+
+  const additionalVarKeys = useMemo(() => {
+    if (additionalVars) {
+      return Object.keys(additionalVars);
+    }
+    return [];
+  }, [additionalVars]);
+
+  const handleFormula1Change = (value: string) => {
+    onParametersChange({
+      ...parameters,
+      formulaForPaymentTermOrLess: value,
+    });
+  };
+
+  const handleFormula2Change = (value: string) => {
+    onParametersChange({
+      ...parameters,
+      formulaForGreaterThanPaymentTerm: value,
+    });
+  };
+
+  const handleReserveColumnNameChange = (value: string) => {
+    onParametersChange({ ...parameters, reserveColumnName: value });
+  };
+
+  const insertToken = (
+    token: string,
+    targetFormula: "formula1" | "formula2"
+  ) => {
+    const textarea =
+      targetFormula === "formula1" ? formula1Ref.current : formula2Ref.current;
+    const currentFormula =
+      targetFormula === "formula1"
+        ? formulaForPaymentTermOrLess
+        : formulaForGreaterThanPaymentTerm;
+
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const text = currentFormula || "";
+      const newText = text.substring(0, start) + token + text.substring(end);
+
+      if (targetFormula === "formula1") {
+        handleFormula1Change(newText);
+      } else {
+        handleFormula2Change(newText);
+      }
+
+      setTimeout(() => {
+        textarea.focus();
+        const newCursorPos = start + token.length;
+        textarea.setSelectionRange(newCursorPos, newCursorPos);
+      }, 0);
+    } else {
+      if (targetFormula === "formula1") {
+        handleFormula1Change((currentFormula || "") + token);
+      } else {
+        handleFormula2Change((currentFormula || "") + token);
+      }
+    }
+  };
+
+  const handleKeyDown = (
+    e: React.KeyboardEvent<HTMLTextAreaElement>,
+    targetFormula: "formula1" | "formula2"
+  ) => {
+    if (e.key === "Backspace") {
+      const textarea = e.currentTarget;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const currentFormula =
+        targetFormula === "formula1"
+          ? formulaForPaymentTermOrLess
+          : formulaForGreaterThanPaymentTerm;
+      const text = currentFormula || "";
+
+      if (start === end && start > 0) {
+        if (text[start - 1] === "]") {
+          const openBracketIndex = text.lastIndexOf("[", start - 1);
+          if (openBracketIndex !== -1) {
+            const token = text.substring(openBracketIndex, start);
+            if (token.length > 2) {
+              e.preventDefault();
+              const newText =
+                text.substring(0, openBracketIndex) + text.substring(start);
+              if (targetFormula === "formula1") {
+                handleFormula1Change(newText);
+              } else {
+                handleFormula2Change(newText);
+              }
+
+              setTimeout(() => {
+                if (targetFormula === "formula1" && formula1Ref.current) {
+                  formula1Ref.current.focus();
+                  formula1Ref.current.setSelectionRange(
+                    openBracketIndex,
+                    openBracketIndex
+                  );
+                } else if (
+                  targetFormula === "formula2" &&
+                  formula2Ref.current
+                ) {
+                  formula2Ref.current.focus();
+                  formula2Ref.current.setSelectionRange(
+                    openBracketIndex,
+                    openBracketIndex
+                  );
+                }
+              }, 0);
+            }
+          }
+        }
+      }
+    }
+  };
+
+  if (!grossPremiumOutput) {
+    return (
+      <p className="text-sm text-gray-500">
+        Connect 'Gross Premium Calculator' to see variables and table columns.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-4 w-full">
+      <div>
+        <h4 className="text-xs text-gray-400 font-bold mb-3">
+          Reserve Calculator
+        </h4>
+
+        {/* Reserve Column Name Input */}
+        <div className="mb-4">
+          <PropertyInput
+            label="Reserve Column Name"
+            value={reserveColumnName}
+            onChange={handleReserveColumnNameChange}
+            placeholder="Reserve"
+          />
+        </div>
+
+        {/* Main Layout: Left (Input Variables) and Right (Formulas) */}
+        <div className="flex gap-6 w-full">
+          {/* Left Side: Input Variables */}
+          <div className="w-2/5 flex flex-col gap-4">
+            {/* Premium Variables */}
+            {premiumComponentVars.length > 0 && (
+              <div className="flex-1 bg-gray-900/50 p-3 rounded-md border border-gray-600">
+                <label className="block text-xs text-gray-400 font-bold mb-2">
+                  Premium Variables
+                </label>
+                <div className="flex flex-wrap gap-1.5 max-h-[200px] overflow-y-auto panel-scrollbar">
+                  {premiumComponentVars.map((k) => (
+                    <button
+                      key={k}
+                      onClick={() => insertToken(`[${k}]`, activeFormula)}
+                      className={
+                        k === "MMX" || k === "PP" || k === "GP"
+                          ? "bg-green-600 hover:bg-green-500 text-xs font-mono px-2.5 py-1.5 rounded-md transition-colors shadow-sm border border-white/10"
+                          : "bg-blue-600 hover:bg-blue-500 text-xs font-mono px-2.5 py-1.5 rounded-md transition-colors shadow-sm border border-white/10"
+                      }
+                      title={`Insert [${k}]`}
+                    >
+                      {k}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Additional Variables */}
+            {additionalVarKeys.length > 0 && (
+              <div className="flex-1 bg-gray-900/50 p-3 rounded-md border border-gray-600">
+                <label className="block text-xs text-gray-400 font-bold mb-2">
+                  Additional Variables
+                </label>
+                <div className="flex flex-wrap gap-1.5 max-h-[200px] overflow-y-auto panel-scrollbar">
+                  {additionalVarKeys.map((k) => (
+                    <button
+                      key={k}
+                      onClick={() => insertToken(`[${k}]`, activeFormula)}
+                      className="bg-amber-600 hover:bg-amber-500 text-xs font-mono px-2.5 py-1.5 rounded-md transition-colors shadow-sm border border-white/10"
+                      title={`Insert [${k}]`}
+                    >
+                      {k}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Table Columns */}
+            {availableColumns.length > 0 && (
+              <div className="flex-1 bg-gray-900/50 p-3 rounded-md border border-gray-600">
+                <label className="block text-xs text-gray-400 font-bold mb-2">
+                  Table Columns
+                </label>
+                <div className="flex flex-wrap gap-1.5 max-h-[200px] overflow-y-auto panel-scrollbar">
+                  {availableColumns.map((col) => (
+                    <button
+                      key={col}
+                      onClick={() => insertToken(`[${col}]`, activeFormula)}
+                      className="px-2.5 py-1.5 bg-gray-600 hover:bg-gray-500 rounded-md text-xs text-gray-200 whitespace-nowrap transition-colors"
+                      title={`Insert [${col}]`}
+                    >
+                      {col}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Policy Variables */}
+            {policyInfo && (
+              <div className="bg-gray-900/50 p-3 rounded-md border border-gray-600">
+                <label className="block text-xs text-gray-400 font-bold mb-2">
+                  Policy Variables
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    onClick={() => insertToken("[m]", activeFormula)}
+                    className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 rounded-md text-xs text-gray-200 whitespace-nowrap transition-colors"
+                    title="Payment Term"
+                  >
+                    m
+                  </button>
+                  <button
+                    onClick={() => insertToken("[n]", activeFormula)}
+                    className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 rounded-md text-xs text-gray-200 whitespace-nowrap transition-colors"
+                    title="Policy Term"
+                  >
+                    n
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right Side: Two Formulas (top and bottom) */}
+          <div className="w-3/5 flex flex-col gap-4">
+            {/* Top Formula: Payment Term or Less */}
+            <div className="flex-1 bg-gray-900/50 p-3 rounded-md border border-gray-600">
+              <label className="block text-xs text-gray-400 font-bold mb-2">
+                Formula for Payment Term ≤ m
+              </label>
+              <textarea
+                ref={formula1Ref}
+                value={formulaForPaymentTermOrLess || ""}
+                onChange={(e) => handleFormula1Change(e.target.value)}
+                onKeyDown={(e) => handleKeyDown(e, "formula1")}
+                onFocus={() => setActiveFormula("formula1")}
+                className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2 min-h-[140px] resize-none"
+                placeholder="e.g. [GP] * [Age]"
+              />
+            </div>
+
+            {/* Copy Button */}
+            <div className="flex justify-center">
+              <button
+                onClick={() => {
+                  if (formulaForPaymentTermOrLess) {
+                    handleFormula2Change(formulaForPaymentTermOrLess);
+                    setTimeout(() => {
+                      if (formula2Ref.current) {
+                        formula2Ref.current.focus();
+                      }
+                    }, 0);
+                  }
+                }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-md transition-colors flex items-center gap-2"
+                title="Copy formula from above to below"
+              >
+                <span>↓</span>
+                <span>Copy Formula</span>
+                <span>↓</span>
+              </button>
+            </div>
+
+            {/* Bottom Formula: Greater than Payment Term */}
+            <div className="flex-1 bg-gray-900/50 p-3 rounded-md border border-gray-600">
+              <label className="block text-xs text-gray-400 font-bold mb-2">
+                Formula for Payment Term &gt; m
+              </label>
+              <textarea
+                ref={formula2Ref}
+                value={formulaForGreaterThanPaymentTerm || ""}
+                onChange={(e) => handleFormula2Change(e.target.value)}
+                onKeyDown={(e) => handleKeyDown(e, "formula2")}
+                onFocus={() => setActiveFormula("formula2")}
+                className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2 min-h-[140px] resize-none"
+                placeholder="e.g. [GP] * 0.5"
+              />
+            </div>
+          </div>
+        </div>
+
+        <p className="text-xs text-gray-500 mt-4">
+          조건문 지원: IF(condition, true_value, false_value) 형식을 사용할 수
+          있습니다. 예: IF([Age] &gt; 50, [GP] * 1.1, [GP])
+        </p>
+      </div>
+    </div>
+  );
+};
+
 const RateModifierParams: React.FC<{
   parameters: Record<string, any>;
   onParametersChange: (newParams: Record<string, any>) => void;
@@ -1464,8 +2326,8 @@ const RateModifierParams: React.FC<{
     if (!formula) return null;
     const parts = formula.split(/(\[[^\]]+\])/g);
     return (
-      <div className="mt-2 p-2 bg-gray-800 rounded border border-gray-700 flex flex-wrap gap-1 items-center font-mono text-sm">
-        <span className="text-gray-500 text-xs w-full uppercase font-bold mb-1">
+      <div className="mt-2 p-2 bg-gray-800 rounded border border-gray-700 flex flex-wrap gap-1 items-center font-mono text-xs">
+        <span className="text-gray-500 text-[10px] w-full uppercase font-bold mb-1">
           Live Preview
         </span>
         {parts.map((part, i) => {
@@ -1498,7 +2360,7 @@ const RateModifierParams: React.FC<{
   return (
     <div className="space-y-6">
       <div>
-        <h4 className="text-sm text-gray-400 font-bold mb-2">
+        <h4 className="text-xs text-gray-400 font-bold mb-2">
           Rate Modifications
         </h4>
         <div className="space-y-4">
@@ -1523,7 +2385,7 @@ const RateModifierParams: React.FC<{
               />
 
               <div>
-                <label className="block text-sm text-gray-400 mb-1">
+                <label className="block text-xs text-gray-400 mb-1">
                   Formula
                 </label>
                 <textarea
@@ -1656,7 +2518,8 @@ const CalculateSurvivorsParams: React.FC<{
 
     const newCalculations = (calculations || []).map((calc: any) => {
       if (calc.id === id && !(calc.decrementRates || []).includes(rateToAdd)) {
-        const newRates = [...(calc.decrementRates || []), rateToAdd].sort();
+        // Add new rate at the end (don't sort) to maintain insertion order
+        const newRates = [...(calc.decrementRates || []), rateToAdd];
         return {
           ...calc,
           name: newRates.join("_"),
@@ -1666,6 +2529,12 @@ const CalculateSurvivorsParams: React.FC<{
       return calc;
     });
     updateCalculations(newCalculations);
+
+    // Clear the selected rate after adding to allow adding the same rate again if needed
+    setSelectedRates((prev) => ({
+      ...prev,
+      [id]: "",
+    }));
   };
 
   const handleRemoveRateFromCalc = (id: string, rate: string) => {
@@ -1705,7 +2574,7 @@ const CalculateSurvivorsParams: React.FC<{
       </div>
 
       <div>
-        <h4 className="text-sm text-gray-400 font-bold mb-2">
+        <h4 className="text-xs text-gray-400 font-bold mb-2">
           Survivors (lx) Calculations
         </h4>
         {numericColumns.length > 0 ? (
@@ -1728,9 +2597,9 @@ const CalculateSurvivorsParams: React.FC<{
                       <XMarkIcon className="w-4 h-4" />
                     </button>
 
-                    <div className="flex items-center gap-2 w-full">
+                    <div className="flex items-center gap-2 w-full min-w-0">
                       <div
-                        className="flex items-center bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm h-[38px]"
+                        className="flex items-center bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm h-[38px] flex-shrink-0"
                         title={`Resulting column name: lx_${calc.name}`}
                       >
                         <span className="text-gray-400">lx_</span>
@@ -1743,7 +2612,7 @@ const CalculateSurvivorsParams: React.FC<{
                         />
                       </div>
 
-                      <div className="flex-grow bg-gray-700 p-1.5 rounded-md border border-gray-600 min-h-[38px] flex flex-wrap gap-1 content-start items-center">
+                      <div className="flex-grow bg-gray-700 p-1.5 rounded-md border border-gray-600 min-h-[38px] flex flex-wrap gap-1 content-start items-center min-w-0">
                         {(calc.decrementRates || []).length === 0 && (
                           <p className="text-xs text-gray-500 px-1">
                             Add decrement rates...
@@ -1813,13 +2682,13 @@ const CalculateSurvivorsParams: React.FC<{
             </div>
             <button
               onClick={handleAddCalculation}
-              className="w-full mt-2 px-3 py-2 text-sm bg-blue-600 hover:bg-blue-500 rounded-md font-semibold"
+              className="w-full mt-2 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 rounded-md font-semibold"
             >
               Add Calculation
             </button>
           </div>
         ) : (
-          <p className="text-sm text-gray-500">
+          <p className="text-xs text-gray-500">
             Connect and run a data source to select risk rate columns.
           </p>
         )}
@@ -1872,7 +2741,10 @@ const ClaimsCalculatorParams: React.FC<{
     [numericColumns]
   );
   const riskOptions = useMemo(
-    () => numericColumns.filter((c) => !c.startsWith("lx_")),
+    () =>
+      numericColumns.filter(
+        (c) => !c.startsWith("lx_") && !c.startsWith("Dx_")
+      ),
     [numericColumns]
   );
 
@@ -1883,15 +2755,17 @@ const ClaimsCalculatorParams: React.FC<{
   const handleAddCalculation = useCallback(() => {
     // Automatically select the first 'lx_' column as default if available
     const defaultLx = lxOptions.length > 0 ? lxOptions[0] : "";
+    // Automatically select the first risk rate column as default
+    const defaultRiskRate = riskOptions.length > 0 ? riskOptions[0] : "";
 
     const newCalc = {
       id: `claim-calc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       lxColumn: defaultLx,
-      riskRateColumn: "",
-      name: "",
+      riskRateColumn: defaultRiskRate,
+      name: defaultRiskRate, // Auto-set name from risk rate column
     };
     updateCalculations([...(calculations || []), newCalc]);
-  }, [calculations, lxOptions]);
+  }, [calculations, lxOptions, riskOptions]);
 
   const handleRemoveCalculation = (id: string) => {
     updateCalculations((calculations || []).filter((c: any) => c.id !== id));
@@ -1906,8 +2780,9 @@ const ClaimsCalculatorParams: React.FC<{
       if (c.id === id) {
         const updatedCalc = { ...c, [field]: value };
         // If updating riskRateColumn, always auto-fill name to match selection
+        // This ensures name always reflects the selected riskRateColumn
         if (field === "riskRateColumn") {
-          updatedCalc.name = value;
+          updatedCalc.name = value || updatedCalc.name;
         }
         return updatedCalc;
       }
@@ -1917,11 +2792,126 @@ const ClaimsCalculatorParams: React.FC<{
   };
 
   // Ensure at least one calculation exists by default
+  // Wait for dataSource to be loaded before initializing
+  // Also update existing calculations if they have empty or invalid values
   useEffect(() => {
-    if (!calculations || calculations.length === 0) {
-      handleAddCalculation();
+    // Only proceed when dataSource is available and has columns
+    if (!dataSource || riskOptions.length === 0 || lxOptions.length === 0) {
+      return;
     }
-  }, [calculations?.length, handleAddCalculation]);
+
+    // If no calculations exist, create one with default values
+    if (!calculations || calculations.length === 0) {
+      const defaultLx = lxOptions[0];
+      const defaultRiskRate = riskOptions[0];
+      const newCalc = {
+        id: `claim-calc-${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2, 7)}`,
+        lxColumn: defaultLx,
+        riskRateColumn: defaultRiskRate,
+        name: defaultRiskRate, // Auto-set name from risk rate column
+      };
+      updateCalculations([newCalc]);
+      return;
+    }
+
+    // If calculations exist but have empty or invalid values, update them
+    let hasInvalidCalc = false;
+    const updatedCalculations = calculations.map((calc: any) => {
+      // Check if lxColumn or riskRateColumn is empty or not in available options
+      const hasValidLx = calc.lxColumn && lxOptions.includes(calc.lxColumn);
+      const hasValidRiskRate =
+        calc.riskRateColumn && riskOptions.includes(calc.riskRateColumn);
+
+      // If either is invalid, update with default values
+      if (!hasValidLx || !hasValidRiskRate) {
+        hasInvalidCalc = true;
+        return {
+          ...calc,
+          lxColumn: hasValidLx ? calc.lxColumn : lxOptions[0],
+          riskRateColumn: hasValidRiskRate
+            ? calc.riskRateColumn
+            : riskOptions[0],
+          name: hasValidRiskRate ? calc.riskRateColumn : riskOptions[0],
+        };
+      }
+      return calc;
+    });
+
+    if (hasInvalidCalc) {
+      updateCalculations(updatedCalculations);
+    }
+  }, [
+    // React when dataSource becomes available or changes
+    dataSource?.columns?.length || 0,
+    // React when riskOptions or lxOptions become available
+    riskOptions.join(","),
+    lxOptions.join(","),
+    // React when calculations change (but avoid infinite loop)
+    calculations?.length || 0,
+  ]);
+
+  // Sync name with riskRateColumn when riskRateColumn changes
+  useEffect(() => {
+    if (!calculations || calculations.length === 0) return;
+
+    let hasChange = false;
+    const updatedCalculations = calculations.map((calc: any) => {
+      // If riskRateColumn is set but name is different, sync name with riskRateColumn
+      if (calc.riskRateColumn && calc.name !== calc.riskRateColumn) {
+        hasChange = true;
+        return {
+          ...calc,
+          name: calc.riskRateColumn,
+        };
+      }
+      return calc;
+    });
+
+    if (hasChange) {
+      updateCalculations(updatedCalculations);
+    }
+  }, [
+    // React when riskRateColumn changes
+    calculations?.map((c: any) => `${c.id}:${c.riskRateColumn}`).join(","),
+  ]);
+
+  // When data is loaded (riskOptions become available), update name from riskRateColumn
+  // This handles the case where calculations exist before data is loaded
+  // Force update name whenever data loads or riskOptions change
+  useEffect(() => {
+    if (!calculations || calculations.length === 0) return;
+    // Only proceed when data is actually loaded
+    if (!dataSource || riskOptions.length === 0) return;
+
+    let hasChange = false;
+    const updatedCalculations = calculations.map((calc: any) => {
+      // If riskRateColumn is set, always sync name with riskRateColumn
+      // This ensures name reflects the actual riskRateColumn value from loaded data
+      if (calc.riskRateColumn) {
+        // Always update if name doesn't match riskRateColumn
+        if (calc.name !== calc.riskRateColumn) {
+          hasChange = true;
+          return {
+            ...calc,
+            name: calc.riskRateColumn,
+          };
+        }
+      }
+      return calc;
+    });
+
+    if (hasChange) {
+      updateCalculations(updatedCalculations);
+    }
+  }, [
+    // React when data is loaded (riskOptions become available)
+    riskOptions.join(","),
+    dataSource?.columns?.length || 0,
+    // Also include calculations to catch when they're loaded from saved state
+    calculations?.length || 0,
+  ]);
 
   if (!dataSource) {
     return (
@@ -2055,45 +3045,78 @@ const NxMxCalculatorParams: React.FC<{
     onParametersChange({ [field]: newCalculations });
   };
 
-  // Auto-populate Nx calculations from Dx columns
+  // Auto-populate Nx calculations from ALL Dx columns
+  // Add new Dx columns automatically when they appear
   useEffect(() => {
-    // Only populate if data exists and NO calculations exist yet
-    if (dxColumns.length > 0 && nxCalculations.length === 0) {
-      const col = dxColumns[0];
-      const newCalc = {
-        id: `nx-auto-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        baseColumn: col,
-        name: col.replace(/^Dx_/, ""),
-        active: true,
-      };
-      updateCalculations("nxCalculations", [newCalc]);
-    }
-  }, [dxColumns.join(","), nxCalculations.length]);
-
-  // Auto-populate Mx calculations from Cx columns
-  useEffect(() => {
-    if (cxColumns.length > 0) {
+    if (dxColumns.length > 0) {
       const existingBase = new Set(
-        mxCalculations.map((c: any) => c.baseColumn)
+        nxCalculations.map((c: any) => c.baseColumn)
       );
-      const missing = cxColumns.filter((c) => !existingBase.has(c));
+      const missing = dxColumns.filter((c) => !existingBase.has(c));
       if (missing.length > 0) {
         const newCalcs = missing.map((col) => ({
-          id: `mx-auto-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          id: `nx-auto-${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 7)}-${col}`,
           baseColumn: col,
-          name: col.replace(/^Cx_/, ""),
+          name: col.replace(/^Dx_/, ""),
           active: true,
-          deductibleType: "0",
-          customDeductible: 0,
-          paymentRatios: [
-            { year: 1, type: "100%", customValue: 100 },
-            { year: 2, type: "100%", customValue: 100 },
-            { year: 3, type: "100%", customValue: 100 },
-          ],
         }));
-        updateCalculations("mxCalculations", [...mxCalculations, ...newCalcs]);
+        updateCalculations("nxCalculations", [...nxCalculations, ...newCalcs]);
       }
     }
+  }, [dxColumns.join(",")]);
+
+  // Auto-populate Mx calculations from Cx columns
+  // Create calculations based on the number of Cx columns (1 Cx = 1 calculation)
+  // Sync mxCalculations to match cxColumns exactly
+  useEffect(() => {
+    if (cxColumns.length > 0) {
+      const existingBaseSet = new Set(
+        mxCalculations.map((c: any) => c.baseColumn)
+      );
+      const cxColumnsSet = new Set(cxColumns);
+
+      // Check if we need to update (if counts don't match or columns don't match)
+      const needsUpdate =
+        mxCalculations.length !== cxColumns.length ||
+        cxColumns.some((col) => !existingBaseSet.has(col)) ||
+        mxCalculations.some((calc: any) => !cxColumnsSet.has(calc.baseColumn));
+
+      if (needsUpdate) {
+        // Create exactly one calculation per Cx column
+        const newCalcs = cxColumns.map((col, idx) => {
+          // Try to preserve existing calculation if it exists
+          const existing = mxCalculations.find(
+            (c: any) => c.baseColumn === col
+          );
+          if (existing) {
+            return existing;
+          }
+          // Create new calculation
+          return {
+            id: `mx-auto-${Date.now()}-${Math.random()
+              .toString(36)
+              .slice(2, 7)}-${idx}`,
+            baseColumn: col,
+            name: col.replace(/^Cx_/, ""),
+            active: true,
+            deductibleType: "0",
+            customDeductible: 0,
+            paymentRatios: [
+              { year: 1, type: "100%", customValue: 100 },
+              { year: 2, type: "100%", customValue: 100 },
+              { year: 3, type: "100%", customValue: 100 },
+            ],
+          };
+        });
+        updateCalculations("mxCalculations", newCalcs);
+      }
+    } else if (cxColumns.length === 0 && mxCalculations.length > 0) {
+      // If Cx columns are removed, clear mxCalculations
+      updateCalculations("mxCalculations", []);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cxColumns.join(",")]);
 
   const handleAdd = (field: "nxCalculations" | "mxCalculations") => {
@@ -2159,15 +3182,15 @@ const NxMxCalculatorParams: React.FC<{
     );
 
   return (
-    <div className="space-y-6">
+    <div className="flex gap-6 min-w-0">
       {/* Nx Calculations */}
-      <div>
-        <h4 className="text-sm text-gray-400 font-bold mb-2">Nx Calculator</h4>
-        <div className="space-y-2">
+      <div className="flex-1 min-w-0">
+        <h4 className="text-xs text-gray-400 font-bold mb-2">Nx Calculator</h4>
+        <div className="space-y-2 max-h-[70vh] overflow-y-auto">
           {nxCalculations.map((calc: any) => (
             <div
               key={calc.id}
-              className="bg-gray-900/50 p-2 rounded-md border border-gray-600 flex items-center gap-2"
+              className="bg-gray-900/50 p-2 rounded-md border border-gray-600 flex items-center gap-2 relative"
             >
               <div className="absolute top-1.5 right-1.5 flex items-center gap-2">
                 <ToggleSwitch
@@ -2180,7 +3203,7 @@ const NxMxCalculatorParams: React.FC<{
                   onClick={() => handleRemove("nxCalculations", calc.id)}
                   className="text-gray-500 hover:text-white"
                 >
-                  <XMarkIcon className="w-4 h-4" />
+                  <XMarkIcon className="w-3 h-3" />
                 </button>
               </div>
               <div className="flex gap-4 items-center w-full pr-20">
@@ -2194,9 +3217,10 @@ const NxMxCalculatorParams: React.FC<{
                     })
                   }
                   options={dxColumns}
+                  compact={true}
                 />
               </div>
-              <div className="text-xs text-gray-500">
+              <div className="text-[10px] text-gray-500">
                 Output:{" "}
                 <span
                   className={
@@ -2205,14 +3229,16 @@ const NxMxCalculatorParams: React.FC<{
                       : "text-gray-500 line-through"
                   }
                 >
-                  Nx_{calc.name || "?"}
+                  {calc.baseColumn
+                    ? calc.baseColumn.replace(/^Dx_/, "Nx_")
+                    : "Nx_?"}
                 </span>
               </div>
             </div>
           ))}
           <button
             onClick={() => handleAdd("nxCalculations")}
-            className="w-full px-3 py-2 text-sm bg-blue-600/80 hover:bg-blue-600 rounded-md font-semibold"
+            className="w-full px-3 py-1.5 text-xs bg-blue-600/80 hover:bg-blue-600 rounded-md font-semibold"
           >
             Add Nx Calculation
           </button>
@@ -2220,13 +3246,13 @@ const NxMxCalculatorParams: React.FC<{
       </div>
 
       {/* Mx Calculations */}
-      <div>
-        <h4 className="text-sm text-gray-400 font-bold mb-2">Mx Calculator</h4>
-        <div className="space-y-2">
+      <div className="flex-1 min-w-0">
+        <h4 className="text-xs text-gray-400 font-bold mb-2">Mx Calculator</h4>
+        <div className="space-y-2 max-h-[70vh] overflow-y-auto">
           {mxCalculations.map((calc: any) => (
             <div
               key={calc.id}
-              className="bg-gray-900/50 p-3 rounded-md border border-gray-600 relative space-y-3"
+              className="bg-gray-900/50 p-2 rounded-md border border-gray-600 relative"
             >
               <div className="absolute top-1.5 right-1.5 flex items-center gap-2">
                 <ToggleSwitch
@@ -2239,120 +3265,128 @@ const NxMxCalculatorParams: React.FC<{
                   onClick={() => handleRemove("mxCalculations", calc.id)}
                   className="text-gray-500 hover:text-white"
                 >
-                  <XMarkIcon className="w-4 h-4" />
+                  <XMarkIcon className="w-3 h-3" />
                 </button>
               </div>
 
-              <PropertySelect
-                label="Base Column (Cx)"
-                value={calc.baseColumn}
-                onChange={(v) =>
-                  handleUpdate("mxCalculations", calc.id, {
-                    baseColumn: v,
-                    name: v.replace(/^Cx_/, ""),
-                  })
-                }
-                options={cxColumns}
-              />
-
-              <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2 pr-20">
                 <PropertySelect
-                  label="Deductible / Adjustment"
-                  value={calc.deductibleType}
+                  label="Base Column (Cx)"
+                  value={calc.baseColumn}
                   onChange={(v) =>
                     handleUpdate("mxCalculations", calc.id, {
-                      deductibleType: v,
+                      baseColumn: v,
+                      name: v.replace(/^Cx_/, ""),
                     })
                   }
-                  options={[
-                    { label: "None (100%)", value: "0" },
-                    { label: "25% Deductible", value: "0.25" },
-                    { label: "50% Deductible", value: "0.5" },
-                    { label: "Custom %", value: "custom" },
-                  ]}
+                  options={cxColumns}
+                  compact={true}
                 />
-                {calc.deductibleType === "custom" && (
-                  <PropertyInput
-                    label="Custom Deductible (0-1)"
-                    type="number"
-                    step="0.01"
-                    value={calc.customDeductible}
-                    onChange={(v) =>
-                      handleUpdate("mxCalculations", calc.id, {
-                        customDeductible: v,
-                      })
-                    }
-                  />
-                )}
-              </div>
 
-              <div>
-                <label className="block text-xs text-gray-400 mb-1 font-bold">
-                  Payment Schedule (First 3 Years)
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(calc.paymentRatios || []).map((ratio: any) => (
-                    <div
-                      key={ratio.year}
-                      className="bg-gray-800 p-1.5 rounded text-xs"
-                    >
-                      <div className="text-gray-500 mb-1 text-center">
-                        Year {ratio.year}
-                      </div>
-                      <select
-                        value={ratio.type}
-                        onChange={(e) =>
-                          handleUpdatePaymentRatio(
-                            calc.id,
-                            ratio.year,
-                            "type",
-                            e.target.value
-                          )
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1">
+                    <PropertySelect
+                      label="Waiting Period"
+                      value={calc.deductibleType}
+                      onChange={(v) =>
+                        handleUpdate("mxCalculations", calc.id, {
+                          deductibleType: v,
+                        })
+                      }
+                      options={[
+                        { label: "None (100%)", value: "0" },
+                        { label: "25% Deductible", value: "0.25" },
+                        { label: "50% Deductible", value: "0.5" },
+                        { label: "Custom %", value: "custom" },
+                      ]}
+                      compact={true}
+                    />
+                    {calc.deductibleType === "custom" && (
+                      <PropertyInput
+                        label="Custom Deductible (0-1)"
+                        type="number"
+                        step="0.01"
+                        value={calc.customDeductible}
+                        onChange={(v) =>
+                          handleUpdate("mxCalculations", calc.id, {
+                            customDeductible: v,
+                          })
                         }
-                        className="w-full bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-xs mb-1"
-                      >
-                        <option value="100%">100%</option>
-                        <option value="50%">50%</option>
-                        <option value="0%">0%</option>
-                        <option value="Custom">Custom</option>
-                      </select>
-                      {ratio.type === "Custom" && (
-                        <input
-                          type="number"
-                          value={ratio.customValue}
-                          onChange={(e) =>
-                            handleUpdatePaymentRatio(
-                              calc.id,
-                              ratio.year,
-                              "customValue",
-                              parseFloat(e.target.value)
-                            )
-                          }
-                          className="w-full bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-xs"
-                        />
-                      )}
+                        compact={true}
+                      />
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-[10px] text-gray-400 mb-1 font-bold">
+                      Payment Schedule (First 3 Years)
+                    </label>
+                    <div className="grid grid-cols-3 gap-1">
+                      {(calc.paymentRatios || []).map((ratio: any) => (
+                        <div
+                          key={ratio.year}
+                          className="bg-gray-800 p-1 rounded text-[10px]"
+                        >
+                          <div className="text-gray-500 mb-0.5 text-center">
+                            Y{ratio.year}
+                          </div>
+                          <select
+                            value={ratio.type}
+                            onChange={(e) =>
+                              handleUpdatePaymentRatio(
+                                calc.id,
+                                ratio.year,
+                                "type",
+                                e.target.value
+                              )
+                            }
+                            className="w-full bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-[10px] mb-0.5"
+                          >
+                            <option value="100%">100%</option>
+                            <option value="50%">50%</option>
+                            <option value="0%">0%</option>
+                            <option value="Custom">Custom</option>
+                          </select>
+                          {ratio.type === "Custom" && (
+                            <input
+                              type="number"
+                              value={ratio.customValue}
+                              onChange={(e) =>
+                                handleUpdatePaymentRatio(
+                                  calc.id,
+                                  ratio.year,
+                                  "customValue",
+                                  parseFloat(e.target.value)
+                                )
+                              }
+                              className="w-full bg-gray-700 border border-gray-600 rounded px-1 py-0.5 text-[10px]"
+                            />
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  </div>
                 </div>
-              </div>
 
-              <div className="text-xs text-gray-500">
-                Output:{" "}
-                <span
-                  className={
-                    calc.active !== false
-                      ? "text-blue-300"
-                      : "text-gray-500 line-through"
-                  }
-                >
-                  Mx_{calc.name || "?"}
-                </span>
+                <div className="text-[10px] text-gray-500">
+                  Output:{" "}
+                  <span
+                    className={
+                      calc.active !== false
+                        ? "text-blue-300"
+                        : "text-gray-500 line-through"
+                    }
+                  >
+                    {calc.baseColumn
+                      ? calc.baseColumn.replace(/^Cx_/, "Mx_")
+                      : "Mx_?"}
+                  </span>
+                </div>
               </div>
             </div>
           ))}
           <button
             onClick={() => handleAdd("mxCalculations")}
-            className="w-full px-3 py-2 text-sm bg-blue-600/80 hover:bg-blue-600 rounded-md font-semibold"
+            className="w-full px-3 py-1.5 text-xs bg-blue-600/80 hover:bg-blue-600 rounded-md font-semibold"
           >
             Add Mx Calculation
           </button>
@@ -2416,16 +3450,48 @@ const PremiumComponentParams: React.FC<{
     }
   }, [nxColumns.join(",")]);
 
+  // Auto-populate SUMX calculations from Mx columns
+  // Sync sumxCalculations to match mxColumns exactly (1 Mx = 1 calculation)
   useEffect(() => {
-    if (mxColumns.length > 0 && sumxCalculations.length === 0) {
-      // Default amount to 10000 for convenience
-      const newCalcs = mxColumns.map((col) => ({
-        id: `sumx-auto-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        mxColumn: col,
-        amount: 10000,
-      }));
-      updateCalculations("sumxCalculations", newCalcs);
+    if (mxColumns.length > 0) {
+      const existingBaseSet = new Set(
+        sumxCalculations.map((c: any) => c.mxColumn)
+      );
+      const mxColumnsSet = new Set(mxColumns);
+
+      // Check if we need to update (if counts don't match or columns don't match)
+      const needsUpdate =
+        sumxCalculations.length === 0 ||
+        sumxCalculations.length !== mxColumns.length ||
+        mxColumns.some((col) => !existingBaseSet.has(col)) ||
+        sumxCalculations.some((calc: any) => !mxColumnsSet.has(calc.mxColumn));
+
+      if (needsUpdate) {
+        // Create exactly one calculation per Mx column
+        const newCalcs = mxColumns.map((col, idx) => {
+          // Try to preserve existing calculation if it exists
+          const existing = sumxCalculations.find(
+            (c: any) => c.mxColumn === col
+          );
+          if (existing) {
+            return existing;
+          }
+          // Create new calculation
+          return {
+            id: `sumx-auto-${Date.now()}-${Math.random()
+              .toString(36)
+              .slice(2, 7)}-${idx}`,
+            mxColumn: col,
+            amount: 10000, // Default amount
+          };
+        });
+        updateCalculations("sumxCalculations", newCalcs);
+      }
+    } else if (mxColumns.length === 0 && sumxCalculations.length > 0) {
+      // If Mx columns are removed, clear sumxCalculations
+      updateCalculations("sumxCalculations", []);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mxColumns.join(",")]);
 
   const handleAdd = (field: "nnxCalculations" | "sumxCalculations") => {
@@ -2474,7 +3540,7 @@ const PremiumComponentParams: React.FC<{
   return (
     <div className="space-y-6">
       <div>
-        <h4 className="text-sm text-gray-400 font-bold mb-2">
+        <h4 className="text-xs text-gray-400 font-bold mb-2">
           NNX Components (Annuity Factors)
         </h4>
         <div className="space-y-2">
@@ -2510,7 +3576,7 @@ const PremiumComponentParams: React.FC<{
       </div>
 
       <div>
-        <h4 className="text-sm text-gray-400 font-bold mb-2">
+        <h4 className="text-xs text-gray-400 font-bold mb-2">
           SUMX Components (Benefit Factors)
         </h4>
         <div className="space-y-2">
@@ -2619,7 +3685,7 @@ const ScenarioRunnerParams: React.FC<{
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="block text-sm text-gray-400 mb-1">
+              <label className="block text-xs text-gray-400 mb-1">
                 Target Module
               </label>
               <select
@@ -2801,6 +3867,17 @@ export const renderParameterContent = (
           compact={compact}
         />
       );
+    case ModuleType.ReserveCalculator:
+      return (
+        <ReserveCalculatorParams
+          parameters={module.parameters}
+          onParametersChange={onParametersChange}
+          allModules={modules}
+          allConnections={connections}
+          moduleId={module.id}
+          compact={compact}
+        />
+      );
     case ModuleType.ScenarioRunner:
       return (
         <ScenarioRunnerParams
@@ -2827,9 +3904,25 @@ export const ParameterInputModal: React.FC<ParameterInputModalProps> = ({
   connections,
   projectName,
   folderHandle,
+  onRunModule,
 }) => {
+  const [isRunning, setIsRunning] = React.useState(false);
+
   const handleParametersChange = (newParams: Record<string, any>) => {
     updateModuleParameters(module.id, newParams);
+  };
+
+  const handleRun = async () => {
+    if (onRunModule) {
+      setIsRunning(true);
+      try {
+        await onRunModule(module.id);
+        // Close modal after successful execution
+        onClose();
+      } finally {
+        setIsRunning(false);
+      }
+    }
   };
 
   const renderContent = () => {
@@ -2843,22 +3936,56 @@ export const ParameterInputModal: React.FC<ParameterInputModalProps> = ({
     );
   };
 
+  // Determine modal width based on module type
+  const getModalWidthClass = () => {
+    if (
+      module.type === ModuleType.CalculateSurvivors ||
+      module.type === ModuleType.NxMxCalculator
+    ) {
+      return "max-w-6xl"; // Wider for these modules
+    }
+    if (
+      module.type === ModuleType.NetPremiumCalculator ||
+      module.type === ModuleType.GrossPremiumCalculator ||
+      module.type === ModuleType.ReserveCalculator
+    ) {
+      return "max-w-7xl"; // Extra wide for Premium Calculators and Reserve Calculator
+    }
+    return "max-w-lg"; // Default width
+  };
+
   return (
     <div
       className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
       onClick={onClose}
     >
       <div
-        className="bg-gray-800 text-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col"
+        className={`bg-gray-800 text-white rounded-lg shadow-xl w-full ${getModalWidthClass()} max-h-[90vh] flex flex-col`}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between p-4 border-b border-gray-700 flex-shrink-0">
-          <h2 className="text-lg font-bold">Edit Parameters: {module.name}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">
-            <XCircleIcon className="w-6 h-6" />
-          </button>
+          <h2 className="text-xs font-bold">Edit Parameters: {module.name}</h2>
+          <div className="flex items-center gap-2">
+            {onRunModule && (
+              <button
+                onClick={handleRun}
+                disabled={isRunning}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-green-600 hover:bg-green-500 rounded-md font-semibold text-white transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed"
+                title="Run this module"
+              >
+                <PlayIcon className="h-3 w-3" />
+                {isRunning ? "Running..." : "Run"}
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-white"
+            >
+              <XCircleIcon className="w-5 h-5" />
+            </button>
+          </div>
         </header>
-        <main className="flex-grow p-6 overflow-auto custom-scrollbar">
+        <main className="flex-grow p-4 overflow-auto custom-scrollbar">
           {renderContent()}
         </main>
       </div>

@@ -157,7 +157,7 @@ export const PipelineExecutionModal: React.FC<PipelineExecutionModalProps> = ({
                 const state = updated.get(module.id);
                 if (state) {
                     updated.set(module.id, {
-                        ...state,
+                        ...(state as ModuleExecutionState),
                         status: module.status,
                         outputData: module.outputData
                     });
@@ -172,7 +172,7 @@ export const PipelineExecutionModal: React.FC<PipelineExecutionModalProps> = ({
             const updated = new Map(prev);
             const state = updated.get(moduleId);
             if (state) {
-                updated.set(moduleId, { ...state, customName: name });
+                updated.set(moduleId, { ...(state as ModuleExecutionState), customName: name });
             }
             return updated;
         });
@@ -184,9 +184,10 @@ export const PipelineExecutionModal: React.FC<PipelineExecutionModalProps> = ({
             const updated = new Map(prev);
             const state = updated.get(moduleId);
             if (state) {
+                const typedState = state as ModuleExecutionState;
                 updated.set(moduleId, {
-                    ...state,
-                    parameters: { ...state.parameters, [key]: value }
+                    ...typedState,
+                    parameters: { ...typedState.parameters, [key]: value }
                 });
             }
             return updated;
@@ -200,7 +201,7 @@ export const PipelineExecutionModal: React.FC<PipelineExecutionModalProps> = ({
     const logMessage = useCallback((moduleId: string, message: string) => {
         setExecutionLog(prev => {
             const updated = new Map(prev);
-            const logs = updated.get(moduleId) || [];
+            const logs = (updated.get(moduleId) || []) as string[];
             updated.set(moduleId, [...logs, message]);
             return updated;
         });
@@ -215,7 +216,7 @@ export const PipelineExecutionModal: React.FC<PipelineExecutionModalProps> = ({
             const updated = new Map(prev);
             const current = updated.get(moduleId);
             if (current) {
-                updated.set(moduleId, { ...current, isRunning: true, status: ModuleStatus.Running });
+                updated.set(moduleId, { ...(current as ModuleExecutionState), isRunning: true, status: ModuleStatus.Running });
             }
             return updated;
         });
@@ -245,7 +246,7 @@ export const PipelineExecutionModal: React.FC<PipelineExecutionModalProps> = ({
                 const updated = new Map(prev);
                 const current = updated.get(moduleId);
                 if (current) {
-                    updated.set(moduleId, { ...current, status: ModuleStatus.Error, isRunning: false });
+                    updated.set(moduleId, { ...(current as ModuleExecutionState), status: ModuleStatus.Error, isRunning: false });
                 }
                 return updated;
             });

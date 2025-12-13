@@ -1,7 +1,9 @@
+import { CanvasModule, ModuleType } from "./types";
 
-import { CanvasModule, ModuleType } from './types';
-
-const replacePlaceholders = (template: string, params: Record<string, any>): string => {
+const replacePlaceholders = (
+  template: string,
+  params: Record<string, any>
+): string => {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
     return params[key] !== undefined ? String(params[key]) : `{{${key}}}`;
   });
@@ -23,17 +25,20 @@ def load_data(source_name):
     # return df
 
 # Simulation
-source = "${parameters.source || 'filename.csv'}"
+source = "${parameters.source || "filename.csv"}"
 df = load_data(source)
 # print(df.head())`;
 
     case ModuleType.SelectData:
       const selections = parameters.selections || [];
-      const selectedCols = selections.filter((s: any) => s.selected).map((s: any) => `'${s.originalName}'`).join(', ');
+      const selectedCols = selections
+        .filter((s: any) => s.selected)
+        .map((s: any) => `'${s.originalName}'`)
+        .join(", ");
       const renameDict = selections
         .filter((s: any) => s.selected && s.originalName !== s.newName)
         .map((s: any) => `'${s.originalName}': '${s.newName}'`)
-        .join(', ');
+        .join(", ");
 
       return `# Select Data
 # Filter columns
@@ -41,7 +46,7 @@ selected_columns = [${selectedCols}]
 df = df[selected_columns]
 
 # Rename columns
-if ${renameDict.length > 0 ? 'True' : 'False'}:
+if ${renameDict.length > 0 ? "True" : "False"}:
     rename_mapping = {${renameDict}}
     df = df.rename(columns=rename_mapping)
 
@@ -51,14 +56,16 @@ print(df.head())`;
       const calculations = parameters.calculations || [];
       let calcCode = `# Rate Modifier\n`;
       if (calculations.length === 0) {
-          calcCode += `# No rate modifications defined.\n`;
+        calcCode += `# No rate modifications defined.\n`;
       } else {
-          calculations.forEach((calc: any) => {
-              calcCode += `# Calculate ${calc.newColumnName}\n`;
-              // Simple replacement of [Column] with df['Column'] for python-ish syntax
-              let pyFormula = calc.formula ? calc.formula.replace(/\[([^\]]+)\]/g, "df['$1']") : '0';
-              calcCode += `df['${calc.newColumnName}'] = ${pyFormula}\n`;
-          });
+        calculations.forEach((calc: any) => {
+          calcCode += `# Calculate ${calc.newColumnName}\n`;
+          // Simple replacement of [Column] with df['Column'] for python-ish syntax
+          let pyFormula = calc.formula
+            ? calc.formula.replace(/\[([^\]]+)\]/g, "df['$1']")
+            : "0";
+          calcCode += `df['${calc.newColumnName}'] = ${pyFormula}\n`;
+        });
       }
       return calcCode;
 
@@ -69,7 +76,9 @@ policy_info = {
     "gender": "${parameters.gender}",
     "policy_term": ${parameters.policyTerm},
     "payment_term": ${parameters.paymentTerm},
-    "interest_rate": ${parameters.interestRate ? parameters.interestRate / 100 : 0.0}
+    "interest_rate": ${
+      parameters.interestRate ? parameters.interestRate / 100 : 0.0
+    }
 }
 print(policy_info)`;
 
@@ -82,13 +91,15 @@ term = policy_info['policy_term']
 
 # Assuming 'df_rates' is the input dataframe
 df_risk = df_rates[
-    (df_rates['${parameters.genderColumn || 'Gender'}'] == gender) & 
-    (df_rates['${parameters.ageColumn || 'Age'}'] >= entry_age) & 
-    (df_rates['${parameters.ageColumn || 'Age'}'] < entry_age + term)
+    (df_rates['${parameters.genderColumn || "Gender"}'] == gender) & 
+    (df_rates['${parameters.ageColumn || "Age"}'] >= entry_age) & 
+    (df_rates['${parameters.ageColumn || "Age"}'] < entry_age + term)
 ].copy()
 
 # Sort by age
-df_risk = df_risk.sort_values(by='${parameters.ageColumn || 'Age'}').reset_index(drop=True)
+df_risk = df_risk.sort_values(by='${
+        parameters.ageColumn || "Age"
+      }').reset_index(drop=True)
 
 # Calculate discount factors
 i = policy_info['interest_rate']
@@ -99,118 +110,155 @@ df_risk['i_claim'] = 1 / ((1 + i) ** (t + 0.5))
 print(df_risk[['i_prem', 'i_claim']].head())`;
 
     case ModuleType.CalculateSurvivors:
-        const surCalcs = parameters.calculations || [];
-        let surCode = `# Calculate Survivors (lx) and Dx\n`;
-        surCode += `initial_lx = 100000\n\n`;
-        
-        surCalcs.forEach((c: any) => {
-            surCode += `# Calculation: ${c.name}\n`;
-            surCode += `current_lx = initial_lx\n`;
-            surCode += `lx_col = 'lx_${c.name}'\n`;
-            surCode += `dx_col = 'Dx_${c.name}'\n`;
-            surCode += `lx_values = []\n`;
-            
-            surCode += `for index, row in df.iterrows():\n`;
-            surCode += `    lx_values.append(current_lx)\n`;
-            const decrements = c.decrementRates || [];
-            if (decrements.length > 0) {
-                if (decrements.length === 1) {
-                     surCode += `    q = row['${decrements[0]}']\n`;
-                     surCode += `    deaths = current_lx * q\n`;
-                } else {
-                     surCode += `    # Combined decrement rates\n`;
-                     surCode += `    q_independent = [row['${decrements.join("'], row['")}']]\n`;
-                     surCode += `    p_independent = [(1 - q) for q in q_independent]\n`;
-                     surCode += `    p_total = 1\n`;
-                     surCode += `    for p in p_independent: p_total *= p\n`;
-                     surCode += `    q_total = 1 - p_total\n`;
-                     surCode += `    deaths = current_lx * q_total\n`;
-                }
-            } else {
-                surCode += `    deaths = 0\n`;
-            }
-            surCode += `    current_lx -= deaths\n`;
-            
-            surCode += `df[lx_col] = lx_values\n`;
-            surCode += `df[dx_col] = df[lx_col] * df['i_prem']\n\n`;
-        });
-        return surCode;
+      const surCalcs = parameters.calculations || [];
+      let surCode = `# Calculate Survivors (lx) and Dx\n`;
+      surCode += `initial_lx = 100000\n\n`;
+
+      surCalcs.forEach((c: any) => {
+        surCode += `# Calculation: ${c.name}\n`;
+        surCode += `current_lx = initial_lx\n`;
+        surCode += `lx_col = 'lx_${c.name}'\n`;
+        surCode += `dx_col = 'Dx_${c.name}'\n`;
+        surCode += `lx_values = []\n`;
+
+        surCode += `for index, row in df.iterrows():\n`;
+        surCode += `    lx_values.append(current_lx)\n`;
+        const decrements = c.decrementRates || [];
+        if (decrements.length > 0) {
+          if (decrements.length === 1) {
+            surCode += `    q = row['${decrements[0]}']\n`;
+            surCode += `    deaths = current_lx * q\n`;
+          } else {
+            surCode += `    # Combined decrement rates\n`;
+            surCode += `    q_independent = [row['${decrements.join(
+              "'], row['"
+            )}']]\n`;
+            surCode += `    p_independent = [(1 - q) for q in q_independent]\n`;
+            surCode += `    p_total = 1\n`;
+            surCode += `    for p in p_independent: p_total *= p\n`;
+            surCode += `    q_total = 1 - p_total\n`;
+            surCode += `    deaths = current_lx * q_total\n`;
+          }
+        } else {
+          surCode += `    deaths = 0\n`;
+        }
+        surCode += `    current_lx -= deaths\n`;
+
+        surCode += `df[lx_col] = lx_values\n`;
+        surCode += `df[dx_col] = df[lx_col] * df['i_prem']\n\n`;
+      });
+      return surCode;
 
     case ModuleType.ClaimsCalculator:
-         const claimCalcs = parameters.calculations || [];
-         let claimCode = `# Calculate Claims (dx) and Commutation (Cx)\n`;
-         claimCalcs.forEach((c: any) => {
-             const name = c.name || c.riskRateColumn || 'Calc';
-             claimCode += `\n# Calculation for ${name}\n`;
-             if (c.lxColumn && c.riskRateColumn) {
-                claimCode += `df['dx_${name}'] = df['${c.lxColumn}'] * df['${c.riskRateColumn}']\n`;
-                claimCode += `df['Cx_${name}'] = df['dx_${name}'] * df['i_claim']\n`;
-             } else {
-                 claimCode += `# Missing configuration for ${name}\n`;
-             }
-         });
-         return claimCode;
+      const claimCalcs = parameters.calculations || [];
+      let claimCode = `# Calculate Claims (dx) and Commutation (Cx)\n`;
+      claimCalcs.forEach((c: any) => {
+        const name = c.name || c.riskRateColumn || "Calc";
+        claimCode += `\n# Calculation for ${name}\n`;
+        if (c.lxColumn && c.riskRateColumn) {
+          claimCode += `df['dx_${name}'] = df['${c.lxColumn}'] * df['${c.riskRateColumn}']\n`;
+          claimCode += `df['Cx_${name}'] = df['dx_${name}'] * df['i_claim']\n`;
+        } else {
+          claimCode += `# Missing configuration for ${name}\n`;
+        }
+      });
+      return claimCode;
 
     case ModuleType.NxMxCalculator:
-         const nxCalcs = parameters.nxCalculations || [];
-         const mxCalcs = parameters.mxCalculations || [];
-         let commutCode = `# Calculate Nx and Mx (Commutation Functions)\n`;
-         
-         nxCalcs.forEach((c: any) => {
-             if (c.baseColumn) {
-                commutCode += `\n# Nx for ${c.name}\n`;
-                commutCode += `# Reverse cumsum (sum from age x to end)\n`;
-                commutCode += `df['Nx_${c.name}'] = df['${c.baseColumn}'][::-1].cumsum()[::-1]\n`;
-             }
-         });
+      const nxCalcs = parameters.nxCalculations || [];
+      const mxCalcs = parameters.mxCalculations || [];
+      let commutCode = `# Calculate Nx and Mx (Commutation Functions)\n`;
 
-         mxCalcs.forEach((c: any) => {
-             if (c.baseColumn) {
-                commutCode += `\n# Mx for ${c.name}\n`;
-                commutCode += `# Adjust Cx based on deductible (${c.deductibleType}) and payment schedule\n`;
-                commutCode += `df['adjusted_Cx'] = df['${c.baseColumn}'] # Simplified placeholder\n`;
-                commutCode += `df['Mx_${c.name}'] = df['adjusted_Cx'][::-1].cumsum()[::-1]\n`;
-             }
-         });
-         return commutCode;
+      nxCalcs.forEach((c: any) => {
+        if (c.baseColumn) {
+          commutCode += `\n# Nx for ${c.name}\n`;
+          commutCode += `# Reverse cumsum (sum from age x to end)\n`;
+          commutCode += `df['Nx_${c.name}'] = df['${c.baseColumn}'][::-1].cumsum()[::-1]\n`;
+        }
+      });
+
+      mxCalcs.forEach((c: any) => {
+        if (c.baseColumn) {
+          commutCode += `\n# Mx for ${c.name}\n`;
+          commutCode += `# Adjust Cx based on deductible (${c.deductibleType}) and payment schedule\n`;
+          commutCode += `df['adjusted_Cx'] = df['${c.baseColumn}'] # Simplified placeholder\n`;
+          commutCode += `df['Mx_${c.name}'] = df['adjusted_Cx'][::-1].cumsum()[::-1]\n`;
+        }
+      });
+      return commutCode;
 
     case ModuleType.PremiumComponent:
-         const nnxCalcs = parameters.nnxCalculations || [];
-         const sumxCalcs = parameters.sumxCalculations || [];
-         let premCompCode = `# Premium Components\n`;
-         premCompCode += `payment_term = int(policy_info['payment_term'])\n`;
-         premCompCode += `policy_term = int(policy_info['policy_term'])\n`;
-         premCompCode += `\n# Ensure indices exist\n`;
-         
-         nnxCalcs.forEach((c: any) => {
-             if (c.nxColumn) {
-                premCompCode += `Nx_start = df.iloc[0]['${c.nxColumn}']\n`;
-                premCompCode += `Nx_end = df.iloc[payment_term]['${c.nxColumn}'] if payment_term < len(df) else 0\n`;
-                premCompCode += `NNX_${c.nxColumn.replace('Nx_', '')} = Nx_start - Nx_end\n`;
-             }
-         });
-         
-         sumxCalcs.forEach((c: any) => {
-             if (c.mxColumn) {
-                premCompCode += `Mx_start = df.iloc[0]['${c.mxColumn}']\n`;
-                premCompCode += `Mx_end = df.iloc[policy_term]['${c.mxColumn}'] if policy_term < len(df) else 0\n`;
-                premCompCode += `SUMX_${c.mxColumn.replace('Mx_', '')} = ${c.amount || 0} * (Mx_start - Mx_end)\n`;
-             }
-         });
-         return premCompCode;
+      const nnxCalcs = parameters.nnxCalculations || [];
+      const sumxCalcs = parameters.sumxCalculations || [];
+      let premCompCode = `# Premium Components\n`;
+      premCompCode += `payment_term = int(policy_info['payment_term'])\n`;
+      premCompCode += `policy_term = int(policy_info['policy_term'])\n`;
+      premCompCode += `\n# Ensure indices exist\n`;
+
+      nnxCalcs.forEach((c: any) => {
+        if (c.nxColumn) {
+          premCompCode += `Nx_start = df.iloc[0]['${c.nxColumn}']\n`;
+          premCompCode += `Nx_end = df.iloc[payment_term]['${c.nxColumn}'] if payment_term < len(df) else 0\n`;
+          premCompCode += `NNX_${c.nxColumn.replace(
+            "Nx_",
+            ""
+          )} = Nx_start - Nx_end\n`;
+        }
+      });
+
+      sumxCalcs.forEach((c: any) => {
+        if (c.mxColumn) {
+          premCompCode += `Mx_start = df.iloc[0]['${c.mxColumn}']\n`;
+          premCompCode += `Mx_end = df.iloc[policy_term]['${c.mxColumn}'] if policy_term < len(df) else 0\n`;
+          premCompCode += `SUMX_${c.mxColumn.replace("Mx_", "")} = ${
+            c.amount || 0
+          } * (Mx_start - Mx_end)\n`;
+        }
+      });
+      return premCompCode;
 
     case ModuleType.NetPremiumCalculator:
-         return `# Net Premium Calculator
-formula = "${parameters.formula || ''}"
+      return `# Net Premium Calculator
+formula = "${parameters.formula || ""}"
 # Replace [Tokens] with variable values
 # Example: [SUMX] / [NNX_Mortality]
 # net_premium = eval(processed_formula, {}, context)
 print(f"Formula: {formula}")
 # print(f"Net Premium: {net_premium}")`;
-    
+
+    case ModuleType.ReserveCalculator:
+      const reserveColName = parameters.reserveColumnName || "Reserve";
+      const formula1 = parameters.formulaForPaymentTermOrLess || "";
+      const formula2 = parameters.formulaForGreaterThanPaymentTerm || "";
+      let reserveCode = `# Reserve Calculator\n`;
+      reserveCode += `reserve_col = "${reserveColName}"\n`;
+      reserveCode += `payment_term = int(policy_info['payment_term'])\n\n`;
+
+      if (formula1) {
+        let pyFormula1 = formula1.replace(/\[([^\]]+)\]/g, "df['$1']");
+        reserveCode += `# Formula for Payment Term <= m (row index <= payment_term - 1)\n`;
+        reserveCode += `formula1 = "${formula1}"\n`;
+        reserveCode += `for idx in range(min(payment_term, len(df))):\n`;
+        reserveCode += `    # Apply formula1 to rows 0 to payment_term-1\n`;
+        reserveCode += `    # Replace [Variables] with actual values\n`;
+        reserveCode += `    df.loc[idx, reserve_col] = ${pyFormula1}\n\n`;
+      }
+
+      if (formula2) {
+        let pyFormula2 = formula2.replace(/\[([^\]]+)\]/g, "df['$1']");
+        reserveCode += `# Formula for Payment Term > m (row index > payment_term - 1)\n`;
+        reserveCode += `formula2 = "${formula2}"\n`;
+        reserveCode += `for idx in range(payment_term, len(df)):\n`;
+        reserveCode += `    # Apply formula2 to rows payment_term onwards\n`;
+        reserveCode += `    # Replace [Variables] with actual values\n`;
+        reserveCode += `    df.loc[idx, reserve_col] = ${pyFormula2}\n`;
+      }
+
+      return reserveCode;
+
     case ModuleType.ScenarioRunner:
-        const scenarios = parameters.scenarios || [];
-        return `# Scenario Runner
+      const scenarios = parameters.scenarios || [];
+      return `# Scenario Runner
 scenarios = ${JSON.stringify(scenarios, null, 2)}
 
 results = []
@@ -226,7 +274,7 @@ import pandas as pd
 # print(df_results)`;
 
     case ModuleType.PipelineExplainer:
-        return `# Pipeline Explainer
+      return `# Pipeline Explainer
 # This module inspects the metadata of the connected graph
 # and generates a structured report of the data flow and calculations.
 print("Generates report...")`;
@@ -234,6 +282,6 @@ print("Generates report...")`;
     default:
       return `# Code generation for ${type} is not yet implemented.
 # Parameters:
-# ${JSON.stringify(parameters, null, 2).split('\n').join('\n# ')}`;
+# ${JSON.stringify(parameters, null, 2).split("\n").join("\n# ")}`;
   }
 };

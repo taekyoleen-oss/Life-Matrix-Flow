@@ -14,6 +14,7 @@ import {
   ModuleStatus,
   ModuleOutput,
   ColumnInfo,
+  DataPreview,
   NetPremiumOutput,
   PremiumComponentOutput,
   PolicyInfoOutput,
@@ -43,6 +44,7 @@ import {
   QueueListIcon,
   FontSizeIncreaseIcon,
   FontSizeDecreaseIcon,
+  XMarkIcon,
 } from "./components/icons";
 import useHistoryState from "./hooks/useHistoryState";
 import { DataPreviewModal } from "./components/DataPreviewModal";
@@ -57,8 +59,18 @@ import { ParameterInputModal } from "./components/ParameterInputModal";
 import { SAMPLE_DATA } from "./sampleData";
 import { CodeTerminalPanel } from "./components/CodeTerminalPanel";
 import { NetPremiumPreviewModal } from "./components/NetPremiumPreviewModal";
+import { AdditionalVariablesPreviewModal } from "./components/AdditionalVariablesPreviewModal";
 import { PipelineReportModal } from "./components/PipelineReportModal";
 import { PipelineExecutionModal } from "./components/PipelineExecutionModal";
+import {
+  loadSharedSamples,
+  saveSampleToFile,
+  loadSampleFromFile,
+  loadPersonalWork,
+  savePersonalWork,
+  SampleData,
+} from "./utils/samples";
+import { savePipeline, loadPipeline } from "../shared/utils/fileOperations";
 
 const getModuleDefault = (type: ModuleType) => {
   const defaultData = DEFAULT_MODULES.find((m) => m.type === type)!;
@@ -129,14 +141,7 @@ const initialModules: CanvasModule[] = [
     ...getModuleDefault(ModuleType.ClaimsCalculator),
     position: { x: 1400, y: 220 },
     parameters: {
-      calculations: [
-        {
-          id: `claim-calc-${Date.now()}`,
-          lxColumn: "lx_Male_Mortality",
-          riskRateColumn: "Male_Cancer",
-          name: "Male_Cancer",
-        },
-      ],
+      calculations: [], // Let the component initialize based on loaded data
     },
   },
   {
@@ -151,20 +156,7 @@ const initialModules: CanvasModule[] = [
           name: "Male_Mortality",
         },
       ],
-      mxCalculations: [
-        {
-          id: "mx-calc-initial",
-          baseColumn: "Cx_Male_Cancer",
-          name: "Male_Cancer",
-          deductibleType: "0",
-          customDeductible: 0,
-          paymentRatios: [
-            { year: 1, type: "100%", customValue: 100 },
-            { year: 2, type: "100%", customValue: 100 },
-            { year: 3, type: "100%", customValue: 100 },
-          ],
-        },
-      ],
+      mxCalculations: [], // Let the component initialize based on loaded data
     },
   },
   {
@@ -178,13 +170,7 @@ const initialModules: CanvasModule[] = [
           nxColumn: "Nx_Male_Mortality",
         },
       ],
-      sumxCalculations: [
-        {
-          id: "sumx-calc-initial",
-          mxColumn: "Mx_Male_Cancer",
-          amount: 10000,
-        },
-      ],
+      sumxCalculations: [], // Let the component initialize based on loaded data
     },
   },
   {
@@ -218,6 +204,16 @@ const initialModules: CanvasModule[] = [
     parameters: {
       formula: "[PP] / (1 - 0.0)",
       variableName: "GP",
+    },
+  },
+  {
+    id: "reserve-calculator-1",
+    ...getModuleDefault(ModuleType.ReserveCalculator),
+    position: { x: 320, y: 400 },
+    parameters: {
+      formulaForPaymentTermOrLess: "",
+      formulaForGreaterThanPaymentTerm: "",
+      reserveColumnName: "Reserve",
     },
   },
 
@@ -315,27 +311,25 @@ const initialConnections: Connection[] = [
     to: { moduleId: "premium-component-1", portName: "data_in" },
   },
   {
-    id: "conn-9",
-    from: { moduleId: "nx-mx-calculator-1", portName: "data_out" },
-    to: { moduleId: "additional-name-1", portName: "data_in" },
-  },
-  {
     id: "conn-10",
     from: {
       moduleId: "premium-component-1",
       portName: "premium_components_out",
     },
     to: {
-      moduleId: "net-premium-calculator-1",
+      moduleId: "additional-name-1",
       portName: "premium_components_in",
     },
   },
   {
-    id: "conn-11",
-    from: { moduleId: "additional-name-1", portName: "variables_out" },
+    id: "conn-10-1",
+    from: {
+      moduleId: "additional-name-1",
+      portName: "output",
+    },
     to: {
       moduleId: "net-premium-calculator-1",
-      portName: "additional_vars_in",
+      portName: "additional_variables_in",
     },
   },
   {
@@ -343,24 +337,100 @@ const initialConnections: Connection[] = [
     from: { moduleId: "net-premium-calculator-1", portName: "premium_out" },
     to: { moduleId: "gross-premium-calculator-1", portName: "net_premium_in" },
   },
-];
-
-const PREDEFINED_SAMPLES = [
   {
-    name: "종신보험",
-    modules: initialModules,
-    connections: initialConnections,
+    id: "conn-13",
+    from: {
+      moduleId: "gross-premium-calculator-1",
+      portName: "gross_premium_out",
+    },
+    to: { moduleId: "reserve-calculator-1", portName: "gross_premium_in" },
   },
 ];
 
+// PREDEFINED_SAMPLES removed - samples are now loaded from /samples/samples.json
+
+// Load initial state from localStorage
+const loadInitialState = (): {
+  modules: CanvasModule[];
+  connections: Connection[];
+} | null => {
+  try {
+    const saved = localStorage.getItem("lifeMatrixFlow_initialState");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed.modules && parsed.connections) {
+        return {
+          modules: parsed.modules,
+          connections: parsed.connections,
+        };
+      }
+    }
+  } catch (error) {
+    console.error("Failed to load initial state from localStorage:", error);
+  }
+  return null;
+};
+
+// Save initial state to localStorage
+const saveInitialState = (
+  modules: CanvasModule[],
+  connections: Connection[]
+) => {
+  try {
+    // Create clean copies without outputData but keep all parameters
+    const cleanModules = modules.map((m) => {
+      const { outputData, ...moduleWithoutOutput } = m;
+      return {
+        ...moduleWithoutOutput,
+        status: ModuleStatus.Pending,
+        parameters: m.parameters || {}, // Ensure parameters are included
+      };
+    });
+    localStorage.setItem(
+      "lifeMatrixFlow_initialState",
+      JSON.stringify({
+        modules: cleanModules,
+        connections: connections,
+      })
+    );
+  } catch (error) {
+    console.error("Failed to save initial state to localStorage:", error);
+  }
+};
+
 const App: React.FC = () => {
+  // Shared samples (from files, shared across all users)
+  const [sharedSamples, setSharedSamples] = useState<SampleData[]>([]);
+  
+  // Personal work (from localStorage, user-specific)
+  const [personalWork, setPersonalWork] = useState<SampleData[]>(() =>
+    loadPersonalWork()
+  );
+
+  // Load shared samples on mount
+  useEffect(() => {
+    loadSharedSamples().then((samples) => {
+      setSharedSamples(samples);
+    });
+  }, []);
+
+  // Load initial state from localStorage if available
+  const loadedInitialState = useMemo(() => loadInitialState(), []);
+  const initialModulesToUse = loadedInitialState?.modules || initialModules;
+  const initialConnectionsToUse =
+    loadedInitialState?.connections || initialConnections;
+
   const [modules, setModules, undo, redo, resetModules, canUndo, canRedo] =
-    useHistoryState<CanvasModule[]>(initialModules);
-  const [connections, _setConnections] =
-    useState<Connection[]>(initialConnections);
+    useHistoryState<CanvasModule[]>(initialModulesToUse);
+  const [connections, _setConnections] = useState<Connection[]>(
+    initialConnectionsToUse
+  );
   const [selectedModuleIds, setSelectedModuleIds] = useState<string[]>([]);
   const [productName, setProductName] = useState("New Life Product");
   const [isEditingProductName, setIsEditingProductName] = useState(false);
+  const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false);
+  const [pendingSample, setPendingSample] = useState<SampleData | null>(null);
+  const [overwriteContext, setOverwriteContext] = useState<'shared' | 'personal' | null>(null);
 
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -391,7 +461,30 @@ const App: React.FC = () => {
 
   const hasInitialRearranged = useRef(false);
 
-  const [isSampleMenuOpen, setIsSampleMenuOpen] = useState(false);
+  const [isSamplesMenuOpen, setIsSamplesMenuOpen] = useState(false);
+  const [isMyWorkMenuOpen, setIsMyWorkMenuOpen] = useState(false);
+  
+  // Close menus when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (
+        !target.closest('.samples-menu-container') &&
+        !target.closest('.my-work-menu-container')
+      ) {
+        setIsSamplesMenuOpen(false);
+        setIsMyWorkMenuOpen(false);
+      }
+    };
+
+    if (isSamplesMenuOpen || isMyWorkMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [isSamplesMenuOpen, isMyWorkMenuOpen]);
+  
   const [isToolboxExpanded, setIsToolboxExpanded] = useState(false);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(
     new Set()
@@ -681,51 +774,45 @@ const App: React.FC = () => {
     setTimeout(() => handleFitToView(), 0);
   }, [modules, connections, setModules, handleFitToView]);
 
-  // Auto rearrange on start
+  // Auto rearrange on start and fit to view
   useEffect(() => {
     if (!hasInitialRearranged.current && modules.length > 0) {
       setTimeout(() => {
         handleRearrangeModules();
         hasInitialRearranged.current = true;
+        // Fit to view after rearrangement
+        setTimeout(() => {
+          handleFitToView();
+        }, 200);
       }, 100);
     }
-  }, []);
+  }, [handleRearrangeModules, handleFitToView]);
 
   const handleSavePipeline = useCallback(async () => {
     try {
-      const pipelineState = { modules, connections, productName };
-      const blob = new Blob([JSON.stringify(pipelineState, null, 2)], {
-        type: "application/json",
+      // Ensure all modules include their parameters when saving
+      const modulesWithParameters = modules.map((m) => ({
+        ...m,
+        parameters: m.parameters || {}, // Ensure parameters exist
+      }));
+      const pipelineState = {
+        modules: modulesWithParameters,
+        connections,
+        productName,
+      };
+
+      await savePipeline(pipelineState, {
+        extension: ".lifx",
+        description: "Life Matrix File",
+        onSuccess: (fileName) => {
+          setIsDirty(false);
+          setSaveButtonText("Saved!");
+          setTimeout(() => setSaveButtonText("Save"), 2000);
+        },
+        onError: (error) => {
+          console.error("Failed to save pipeline:", error);
+        },
       });
-      const fileName = `${productName.replace(/[<>:"/\\|?*]/g, "_")}.lifx`;
-
-      if ((window as any).showSaveFilePicker) {
-        const handle = await (window as any).showSaveFilePicker({
-          suggestedName: fileName,
-          types: [
-            {
-              description: "Life Matrix File",
-              accept: { "application/json": [".lifx"] },
-            },
-          ],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-      } else {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }
-
-      setIsDirty(false);
-      setSaveButtonText("Saved!");
-      setTimeout(() => setSaveButtonText("Save"), 2000);
     } catch (error: any) {
       if (error.name !== "AbortError") {
         console.error("Failed to save pipeline:", error);
@@ -733,35 +820,23 @@ const App: React.FC = () => {
     }
   }, [modules, connections, productName]);
 
-  const handleLoadPipeline = useCallback(() => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".lifx";
-    input.onchange = (event: Event) => {
-      const target = event.target as HTMLInputElement;
-      const file = target.files?.[0];
-      if (!file) return;
+  const handleLoadPipeline = useCallback(async () => {
+    const savedState = await loadPipeline({
+      extension: ".lifx",
+      onError: (error) => {
+        console.error("Failed to load pipeline:", error);
+      },
+    });
 
-      const reader = new FileReader();
-      reader.onload = (e: ProgressEvent<FileReader>) => {
-        try {
-          const content = e.target?.result as string;
-          if (!content) return;
-          const savedState = JSON.parse(content);
-          if (savedState.modules && savedState.connections) {
-            resetModules(savedState.modules);
-            _setConnections(savedState.connections);
-            if (savedState.productName) setProductName(savedState.productName);
-            setSelectedModuleIds([]);
-            setIsDirty(false);
-          }
-        } catch (error) {
-          console.error("Failed to load or parse pipeline file:", error);
-        }
-      };
-      reader.readAsText(file);
-    };
-    input.click();
+    if (savedState) {
+      if (savedState.modules && savedState.connections) {
+        resetModules(savedState.modules);
+        _setConnections(savedState.connections);
+        if (savedState.productName) setProductName(savedState.productName);
+        setSelectedModuleIds([]);
+        setIsDirty(false);
+      }
+    }
   }, [resetModules]);
 
   const handleSetFolder = useCallback(async () => {
@@ -779,18 +854,153 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const handleLoadSample = (sample: (typeof PREDEFINED_SAMPLES)[0]) => {
+  const createCleanSample = useCallback((): SampleData => {
+    return {
+      name: productName,
+      modules: modules.map((m) => {
+        // Create a clean copy without outputData and with Pending status
+        // Keep all parameters including selections, formulas, etc.
+        const { outputData, ...moduleWithoutOutput } = m;
+        return {
+          ...moduleWithoutOutput,
+          status: ModuleStatus.Pending,
+          parameters: m.parameters || {}, // Ensure parameters are included
+        };
+      }),
+      connections: connections,
+    };
+  }, [productName, modules, connections]);
+
+  const handleLoadSample = (sample: SampleData) => {
     resetModules(sample.modules);
     _setConnections(sample.connections);
     setProductName(sample.name);
     setSelectedModuleIds([]);
     setIsDirty(false);
-    setIsSampleMenuOpen(false);
+    setIsSamplesMenuOpen(false);
+    setIsMyWorkMenuOpen(false);
     // Trigger auto-layout after a short delay
     setTimeout(() => {
       hasInitialRearranged.current = false; // Reset to force layout
       handleRearrangeModules();
     }, 100);
+  };
+
+  // Save to shared samples (downloads file)
+  const handleSaveToSharedSamples = () => {
+    const newSample = createCleanSample();
+
+    // Check if sample with same name exists
+    const existingIndex = sharedSamples.findIndex((s) => s.name === productName);
+
+    if (existingIndex >= 0) {
+      // Show overwrite confirmation
+      setPendingSample(newSample);
+      setOverwriteContext('shared');
+      setShowOverwriteConfirm(true);
+    } else {
+      // Download file
+      saveSampleToFile(newSample);
+      setIsSamplesMenuOpen(false);
+      alert(`"${productName}"이(가) 다운로드되었습니다. samples 폴더에 저장하고 커밋하세요.`);
+    }
+  };
+
+  // Save to personal work (localStorage)
+  const handleSaveToPersonalWork = () => {
+    const newSample = createCleanSample();
+
+    // Check if work with same name exists
+    const existingIndex = personalWork.findIndex((s) => s.name === productName);
+
+    if (existingIndex >= 0) {
+      // Show overwrite confirmation
+      setPendingSample(newSample);
+      setOverwriteContext('personal');
+      setShowOverwriteConfirm(true);
+    } else {
+      // Add new work
+      const updatedWork = [...personalWork, newSample];
+      setPersonalWork(updatedWork);
+      savePersonalWork(updatedWork);
+      setIsMyWorkMenuOpen(false);
+    }
+  };
+
+  const handleSetAsInitial = () => {
+    if (
+      confirm(
+        "현재 모델을 초기 화면으로 설정하시겠습니까? 다음에 앱을 열 때 이 모델이 기본으로 표시됩니다."
+      )
+    ) {
+      saveInitialState(modules, connections);
+      alert(
+        "초기 화면으로 설정되었습니다. 다음에 앱을 열 때 이 모델이 표시됩니다."
+      );
+    }
+  };
+
+  const handleDeletePersonalWork = (workName: string, index: number) => {
+    if (confirm(`"${workName}"을(를) 삭제하시겠습니까?`)) {
+      const updatedWork = personalWork.filter((_, idx) => idx !== index);
+      setPersonalWork(updatedWork);
+      savePersonalWork(updatedWork);
+    }
+  };
+
+  const handleLoadPersonalWorkFromFile = useCallback(async () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        const sample = await loadSampleFromFile(file);
+        if (sample) {
+          handleLoadSample(sample);
+        } else {
+          alert('파일을 읽을 수 없습니다. 올바른 형식의 JSON 파일인지 확인하세요.');
+        }
+      }
+    };
+    input.click();
+  }, []);
+
+  const handleConfirmOverwrite = () => {
+    if (!pendingSample || !overwriteContext) return;
+
+    if (overwriteContext === 'shared') {
+      // For shared samples, download the file
+      saveSampleToFile(pendingSample);
+      alert(`"${pendingSample.name}"이(가) 다운로드되었습니다. samples 폴더에 저장하고 커밋하세요.`);
+    } else if (overwriteContext === 'personal') {
+      // For personal work, update localStorage
+      const existingIndex = personalWork.findIndex(
+        (s) => s.name === pendingSample.name
+      );
+      const updatedWork = [...personalWork];
+
+      if (existingIndex >= 0) {
+        updatedWork[existingIndex] = pendingSample;
+      } else {
+        updatedWork.push(pendingSample);
+      }
+
+      setPersonalWork(updatedWork);
+      savePersonalWork(updatedWork);
+    }
+
+    setShowOverwriteConfirm(false);
+    setPendingSample(null);
+    setOverwriteContext(null);
+    setIsSamplesMenuOpen(false);
+    setIsMyWorkMenuOpen(false);
+  };
+
+  const handleCancelOverwrite = () => {
+    setShowOverwriteConfirm(false);
+    setPendingSample(null);
+    setOverwriteContext(null);
   };
 
   const createModule = useCallback(
@@ -1045,6 +1255,8 @@ const App: React.FC = () => {
             module={currentViewingModule}
             projectName={productName}
             onClose={handleCloseModal}
+            allModules={modules}
+            allConnections={connections}
           />
         );
       case "StatisticsOutput":
@@ -1106,6 +1318,18 @@ const App: React.FC = () => {
             module={currentViewingModule}
             projectName={productName}
             onClose={handleCloseModal}
+            allModules={modules}
+            allConnections={connections}
+          />
+        );
+      case "AdditionalVariablesOutput":
+        return (
+          <AdditionalVariablesPreviewModal
+            module={currentViewingModule}
+            projectName={productName}
+            onClose={handleCloseModal}
+            allModules={modules}
+            allConnections={connections}
           />
         );
       case "PipelineExplainerOutput":
@@ -1122,6 +1346,10 @@ const App: React.FC = () => {
 
   const roundTo5 = (num: number) => {
     return Number(num.toFixed(5));
+  };
+
+  const roundTo8 = (num: number) => {
+    return Number(num.toFixed(8));
   };
 
   const getTopologicalSort = useCallback(
@@ -1233,7 +1461,12 @@ const App: React.FC = () => {
             : policyModule.parameters;
 
         // Handle Maturity Age logic
-        let policyTerm = Number(params.policyTerm);
+        let policyTerm =
+          params.policyTerm === "" ||
+          params.policyTerm === null ||
+          params.policyTerm === undefined
+            ? 0
+            : Number(params.policyTerm);
         if (params.maturityAge && Number(params.maturityAge) > 0) {
           const calculatedTerm =
             Number(params.maturityAge) - Number(params.entryAge);
@@ -1313,6 +1546,46 @@ const App: React.FC = () => {
           const idx = currentModules.findIndex((m) => m.id === moduleId);
           currentModules[idx] = skippedModule;
           continue;
+        }
+
+        // Initialize module parameters with defaults if needed (before overriddenParams)
+        if (module.type === ModuleType.AdditionalName) {
+          const defaultModule = DEFAULT_MODULES.find(
+            (m) => m.type === ModuleType.AdditionalName
+          );
+          const defaultBasicValues = defaultModule?.parameters?.basicValues || [
+            { name: "α1", value: 0 },
+            { name: "α2", value: 0 },
+            { name: "β1", value: 0 },
+            { name: "β2", value: 0 },
+            { name: "γ", value: 0 },
+          ];
+          if (!module.parameters) {
+            module.parameters = {
+              basicValues: JSON.parse(JSON.stringify(defaultBasicValues)),
+              definitions: [],
+            };
+          } else if (
+            !module.parameters.basicValues ||
+            !Array.isArray(module.parameters.basicValues) ||
+            module.parameters.basicValues.length === 0
+          ) {
+            module.parameters = {
+              ...module.parameters,
+              basicValues: JSON.parse(JSON.stringify(defaultBasicValues)),
+              definitions: module.parameters.definitions || [],
+            };
+          }
+          // Update the module in currentModules array
+          const modIdx = currentModules.findIndex((m) => m.id === moduleId);
+          if (modIdx !== -1) {
+            currentModules[modIdx] = {
+              ...currentModules[modIdx],
+              parameters: module.parameters,
+            };
+            // Update module reference
+            module = currentModules[modIdx];
+          }
         }
 
         if (overriddenParams && overriddenParams[moduleId]) {
@@ -1493,7 +1766,12 @@ const App: React.FC = () => {
             }
           } else if (module.type === ModuleType.DefinePolicyInfo) {
             const params = module.parameters;
-            let policyTerm = Number(params.policyTerm);
+            let policyTerm =
+              params.policyTerm === "" ||
+              params.policyTerm === null ||
+              params.policyTerm === undefined
+                ? 0
+                : Number(params.policyTerm);
             if (params.maturityAge && Number(params.maturityAge) > 0) {
               const calculatedTerm =
                 Number(params.maturityAge) - Number(params.entryAge);
@@ -1517,8 +1795,12 @@ const App: React.FC = () => {
             );
             const policyInfo = getGlobalPolicyInfo();
 
-            const { ageColumn, genderColumn } = module.parameters;
-            const { entryAge, policyTerm, gender, interestRate } = policyInfo;
+            const {
+              ageColumn,
+              genderColumn,
+              excludeNonNumericRows = true,
+            } = module.parameters;
+            let { entryAge, policyTerm, gender, interestRate } = policyInfo;
 
             if (!ageColumn || !genderColumn)
               throw new Error(
@@ -1528,12 +1810,58 @@ const App: React.FC = () => {
               throw new Error(
                 "Interest Rate is not defined in the connected Policy Info module."
               );
-            if (policyTerm <= 0)
-              throw new Error(
-                `Calculated Policy Term is ${policyTerm} (Entry Age: ${entryAge}). Policy Term must be positive. Check Maturity Age or Policy Term settings.`
-              );
 
-            const filteredRows = riskData.rows?.filter((row) => {
+            // Filter out rows with non-numeric values if excludeNonNumericRows is true
+            let rowsToProcess = riskData.rows || [];
+            if (excludeNonNumericRows) {
+              const numericColumns = riskData.columns
+                .filter((c) => c.type === "number")
+                .map((c) => c.name);
+
+              rowsToProcess = rowsToProcess.filter((row) => {
+                // Check all columns except Age and Gender
+                for (const col of riskData.columns) {
+                  if (col.name === ageColumn || col.name === genderColumn)
+                    continue;
+
+                  // If column is supposed to be numeric, check if value is numeric
+                  if (numericColumns.includes(col.name)) {
+                    const value = row[col.name];
+                    if (value !== null && value !== undefined && value !== "") {
+                      const numValue = Number(value);
+                      if (isNaN(numValue) || !isFinite(numValue)) {
+                        return false; // Exclude this row
+                      }
+                    }
+                  }
+                }
+                return true; // Keep this row
+              });
+            }
+
+            // If policyTerm is 0 or empty, calculate from maximum age in data
+            if (policyTerm <= 0) {
+              const matchingRows = rowsToProcess.filter((row) => {
+                const rowGender = row[genderColumn];
+                const rowAge = Number(row[ageColumn]);
+                return rowGender === gender && rowAge >= entryAge;
+              });
+
+              if (matchingRows && matchingRows.length > 0) {
+                const maxAge = Math.max(
+                  ...matchingRows.map((row) => Number(row[ageColumn]))
+                );
+                // Calculate policyTerm as the number of rows from entryAge to maxAge (inclusive)
+                // Example: entryAge=40, maxAge=110 -> policyTerm = 110 - 40 + 1 = 71
+                policyTerm = maxAge - entryAge + 1;
+              } else {
+                throw new Error(
+                  `No risk data found for gender "${gender}" and age >= ${entryAge}. Cannot calculate Policy Term automatically.`
+                );
+              }
+            }
+
+            const filteredRows = rowsToProcess.filter((row) => {
               const rowGender = row[genderColumn];
               const rowAge = Number(row[ageColumn]);
               return (
@@ -1577,8 +1905,8 @@ const App: React.FC = () => {
               }
 
               // Add interest rates
-              newRow["i_prem"] = roundTo5(1 / Math.pow(1 + i, t));
-              newRow["i_claim"] = roundTo5(1 / Math.pow(1 + i, t + 0.5));
+              newRow["i_prem"] = roundTo8(1 / Math.pow(1 + i, t));
+              newRow["i_claim"] = roundTo8(1 / Math.pow(1 + i, t + 0.5));
 
               return newRow;
             });
@@ -1720,7 +2048,15 @@ const App: React.FC = () => {
             if (!inputData.rows)
               throw new Error("Input data is valid but contains no rows.");
 
-            const calculations = module.parameters.calculations || [];
+            // Ensure module.parameters exists
+            if (!module.parameters) {
+              module.parameters = { calculations: [] };
+            }
+            if (!module.parameters.calculations) {
+              module.parameters.calculations = [];
+            }
+
+            let calculations = module.parameters.calculations || [];
 
             if (
               inputData.rows.length > 0 &&
@@ -1729,6 +2065,62 @@ const App: React.FC = () => {
               throw new Error(
                 "Input data must contain an 'i_claim' column. Connect a 'Select Rates' module."
               );
+            }
+
+            // If calculations is empty, create default calculation
+            if (calculations.length === 0) {
+              // Find available columns
+              const excludedNames = [
+                "age",
+                "sex",
+                "gender",
+                "entryage",
+                "i_prem",
+                "i_claim",
+              ];
+              const numericColumns = inputData.columns
+                .filter(
+                  (c) =>
+                    c.type === "number" &&
+                    !excludedNames.includes(c.name.toLowerCase())
+                )
+                .map((c) => c.name);
+
+              const lxOptions = numericColumns.filter((c) =>
+                c.startsWith("lx_")
+              );
+              const riskOptions = numericColumns.filter(
+                (c) => !c.startsWith("lx_") && !c.startsWith("Dx_")
+              );
+
+              // Create default calculation if columns are available
+              if (lxOptions.length > 0 && riskOptions.length > 0) {
+                const defaultLx = lxOptions[0];
+                const defaultRiskRate = riskOptions[0];
+                calculations = [
+                  {
+                    id: `claim-calc-default-${Date.now()}`,
+                    lxColumn: defaultLx,
+                    riskRateColumn: defaultRiskRate,
+                    name: defaultRiskRate,
+                  },
+                ];
+                // Update module parameters with default calculations
+                module.parameters = {
+                  ...module.parameters,
+                  calculations: calculations,
+                };
+                // Update the module in currentModules array
+                const moduleIdx = currentModules.findIndex(
+                  (m) => m.id === module.id
+                );
+                if (moduleIdx !== -1) {
+                  currentModules[moduleIdx] = {
+                    ...currentModules[moduleIdx],
+                    parameters: module.parameters,
+                  };
+                }
+              }
             }
 
             // Deep copy rows to prevent mutating original input
@@ -1811,14 +2203,109 @@ const App: React.FC = () => {
               "DataPreview"
             );
             if (!inputData.rows) throw new Error("Input data has no rows.");
-            const { nxCalculations = [], mxCalculations = [] } =
+
+            // Ensure module.parameters exists
+            if (!module.parameters) {
+              module.parameters = { nxCalculations: [], mxCalculations: [] };
+            }
+            if (!module.parameters.nxCalculations) {
+              module.parameters.nxCalculations = [];
+            }
+            if (!module.parameters.mxCalculations) {
+              module.parameters.mxCalculations = [];
+            }
+
+            let { nxCalculations = [], mxCalculations = [] } =
               module.parameters;
+
+            // Sync mxCalculations to match Cx columns exactly (1 Cx = 1 calculation)
+            const cxColumns = inputData.columns
+              .filter((c) => c.name.startsWith("Cx_"))
+              .map((c) => c.name);
+
+            if (cxColumns.length > 0) {
+              const existingBaseSet = new Set(
+                mxCalculations.map((c: any) => c.baseColumn)
+              );
+              const cxColumnsSet = new Set(cxColumns);
+
+              // Check if we need to update (if counts don't match or columns don't match)
+              const needsUpdate =
+                mxCalculations.length === 0 ||
+                mxCalculations.length !== cxColumns.length ||
+                cxColumns.some((col) => !existingBaseSet.has(col)) ||
+                mxCalculations.some(
+                  (calc: any) => !cxColumnsSet.has(calc.baseColumn)
+                );
+
+              if (needsUpdate) {
+                // Create exactly one calculation per Cx column
+                mxCalculations = cxColumns.map((col, idx) => {
+                  // Try to preserve existing calculation if it exists
+                  const existing = mxCalculations.find(
+                    (c: any) => c.baseColumn === col
+                  );
+                  if (existing) {
+                    return existing;
+                  }
+                  // Create new calculation
+                  return {
+                    id: `mx-auto-${Date.now()}-${idx}`,
+                    baseColumn: col,
+                    name: col.replace(/^Cx_/, ""),
+                    active: true,
+                    deductibleType: "0",
+                    customDeductible: 0,
+                    paymentRatios: [
+                      { year: 1, type: "100%", customValue: 100 },
+                      { year: 2, type: "100%", customValue: 100 },
+                      { year: 3, type: "100%", customValue: 100 },
+                    ],
+                  };
+                });
+                // Update module parameters with default mxCalculations
+                module.parameters = {
+                  ...module.parameters,
+                  mxCalculations: mxCalculations,
+                };
+                // Update the module in currentModules array
+                const modIdx = currentModules.findIndex(
+                  (m) => m.id === module.id
+                );
+                if (modIdx !== -1) {
+                  currentModules[modIdx] = {
+                    ...currentModules[modIdx],
+                    parameters: module.parameters,
+                  };
+                  // Update module reference
+                  module = currentModules[modIdx];
+                }
+              }
+            } else if (cxColumns.length === 0 && mxCalculations.length > 0) {
+              // If no Cx columns, clear mxCalculations
+              mxCalculations = [];
+              module.parameters = {
+                ...module.parameters,
+                mxCalculations: [],
+              };
+              const modIdx = currentModules.findIndex(
+                (m) => m.id === module.id
+              );
+              if (modIdx !== -1) {
+                currentModules[modIdx] = {
+                  ...currentModules[modIdx],
+                  parameters: module.parameters,
+                };
+                // Update module reference
+                module = currentModules[modIdx];
+              }
+            }
             const outputRows = inputData.rows.map((r) => ({ ...r }));
             const outputColumnsInfo = [...inputData.columns];
 
             for (const calc of nxCalculations) {
               if (calc.active === false) continue;
-              if (!calc.baseColumn || !calc.name) continue;
+              if (!calc.baseColumn) continue;
               const baseData = outputRows.map(
                 (row) => Number(row[calc.baseColumn]) || 0
               );
@@ -1828,7 +2315,8 @@ const App: React.FC = () => {
                 sum += baseData[i];
                 cumulativeData[i] = sum;
               }
-              const newColName = `Nx_${calc.name}`;
+              // Use baseColumn name directly: Dx_XXX -> Nx_XXX
+              const newColName = calc.baseColumn.replace(/^Dx_/, "Nx_");
               outputRows.forEach((row, i) => {
                 row[newColName] = roundTo5(cumulativeData[i]);
               });
@@ -1838,7 +2326,7 @@ const App: React.FC = () => {
 
             for (const calc of mxCalculations) {
               if (calc.active === false) continue;
-              if (!calc.baseColumn || !calc.name) continue;
+              if (!calc.baseColumn) continue;
               const adjustedCxData = outputRows.map((row, index) => {
                 let cx = Number(row[calc.baseColumn]) || 0;
                 let factor = 1.0;
@@ -1864,7 +2352,8 @@ const App: React.FC = () => {
                 sum += adjustedCxData[i];
                 cumulativeData[i] = sum;
               }
-              const newColName = `Mx_${calc.name}`;
+              // Use baseColumn name directly: Cx_XXX -> Mx_XXX
+              const newColName = calc.baseColumn.replace(/^Cx_/, "Mx_");
               outputRows.forEach((row, i) => {
                 row[newColName] = roundTo5(cumulativeData[i]);
               });
@@ -1886,8 +2375,97 @@ const App: React.FC = () => {
             const policyInfo = getGlobalPolicyInfo();
             if (!inputData.rows) throw new Error("Input data has no rows.");
 
-            const { nnxCalculations = [], sumxCalculations = [] } =
+            // Ensure module.parameters exists
+            if (!module.parameters) {
+              module.parameters = { nnxCalculations: [], sumxCalculations: [] };
+            }
+            if (!module.parameters.nnxCalculations) {
+              module.parameters.nnxCalculations = [];
+            }
+            if (!module.parameters.sumxCalculations) {
+              module.parameters.sumxCalculations = [];
+            }
+
+            let { nnxCalculations = [], sumxCalculations = [] } =
               module.parameters;
+
+            // Sync sumxCalculations to match Mx columns exactly (1 Mx = 1 calculation)
+            const availableMxColumns = inputData.columns
+              .filter((c) => c.name.startsWith("Mx_"))
+              .map((c) => c.name);
+
+            if (availableMxColumns.length > 0) {
+              const existingBaseSet = new Set(
+                sumxCalculations.map((c: any) => c.mxColumn)
+              );
+              const mxColumnsSet = new Set(availableMxColumns);
+
+              // Check if we need to update (if counts don't match or columns don't match)
+              const needsUpdate =
+                sumxCalculations.length === 0 ||
+                sumxCalculations.length !== availableMxColumns.length ||
+                availableMxColumns.some((col) => !existingBaseSet.has(col)) ||
+                sumxCalculations.some(
+                  (calc: any) => !mxColumnsSet.has(calc.mxColumn)
+                );
+
+              if (needsUpdate) {
+                // Create exactly one calculation per Mx column
+                sumxCalculations = availableMxColumns.map((col, idx) => {
+                  // Try to preserve existing calculation if it exists
+                  const existing = sumxCalculations.find(
+                    (c: any) => c.mxColumn === col
+                  );
+                  if (existing) {
+                    return existing;
+                  }
+                  // Create new calculation
+                  return {
+                    id: `sumx-auto-${Date.now()}-${idx}`,
+                    mxColumn: col,
+                    amount: 10000, // Default amount
+                  };
+                });
+                // Update module parameters with default sumxCalculations
+                module.parameters = {
+                  ...module.parameters,
+                  sumxCalculations: sumxCalculations,
+                };
+                // Update the module in currentModules array
+                const modIdx = currentModules.findIndex(
+                  (m) => m.id === module.id
+                );
+                if (modIdx !== -1) {
+                  currentModules[modIdx] = {
+                    ...currentModules[modIdx],
+                    parameters: module.parameters,
+                  };
+                  // Update module reference
+                  module = currentModules[modIdx];
+                }
+              }
+            } else if (
+              availableMxColumns.length === 0 &&
+              sumxCalculations.length > 0
+            ) {
+              // If no Mx columns, clear sumxCalculations
+              sumxCalculations = [];
+              module.parameters = {
+                ...module.parameters,
+                sumxCalculations: [],
+              };
+              const modIdx = currentModules.findIndex(
+                (m) => m.id === module.id
+              );
+              if (modIdx !== -1) {
+                currentModules[modIdx] = {
+                  ...currentModules[modIdx],
+                  parameters: module.parameters,
+                };
+                // Update module reference
+                module = currentModules[modIdx];
+              }
+            }
             const { paymentTerm, policyTerm } = policyInfo;
             const rows = inputData.rows;
 
@@ -1901,37 +2479,288 @@ const App: React.FC = () => {
               nnxResults[resultName] = roundTo5(nx_start - nx_end);
             }
 
-            let sumxValue = 0;
+            let mmxValue = 0;
             const mxResults: Record<string, number> = {};
             for (const calc of sumxCalculations) {
-              const mx_start = Number(rows[0][calc.mxColumn]);
-              const mx_end = rows[policyTerm]
-                ? Number(rows[policyTerm][calc.mxColumn])
-                : 0;
+              // Skip if mxColumn is not set
+              if (!calc.mxColumn) continue;
 
-              const benefit_pv = Number(calc.amount) * (mx_start - mx_end);
-              sumxValue += benefit_pv;
+              // Get mx_start from first row
+              const mx_start_val = rows[0]?.[calc.mxColumn];
+              const mx_start =
+                mx_start_val !== undefined && mx_start_val !== null
+                  ? Number(mx_start_val)
+                  : 0;
+
+              // Calculate benefit PV: MMX = amount * Mx[0]
+              const amount = Number(calc.amount) || 0;
+              const benefit_pv = amount * mx_start;
+
+              // Only add if valid number
+              if (!isNaN(benefit_pv) && isFinite(benefit_pv)) {
+                mmxValue += benefit_pv;
+              }
 
               const resultName = calc.mxColumn.replace("Mx_", "");
               mxResults[resultName] = roundTo5(benefit_pv);
             }
+
+            // Create enhanced table data with NNX and MMX columns
+            const enhancedRows = rows.map((row, rowIndex) => {
+              const newRow = { ...row };
+
+              // Add NNX columns: SUM[NX(rowIndex) - NX(Payment Term)]
+              // NX(Payment Term) is fixed, NX(rowIndex) increases
+              // If rowIndex > paymentTerm, set to 0
+              for (const calc of nnxCalculations) {
+                const nxColumn = calc.nxColumn;
+                const nnxColumnName = `NNX_${nxColumn.replace("Nx_", "")}_Col`;
+
+                if (rowIndex > paymentTerm) {
+                  newRow[nnxColumnName] = 0;
+                } else {
+                  const nx_current = Number(row[nxColumn]) || 0;
+                  const nx_paymentTerm =
+                    rows[paymentTerm] && rows[paymentTerm][nxColumn]
+                      ? Number(rows[paymentTerm][nxColumn])
+                      : 0;
+                  newRow[nnxColumnName] = roundTo5(nx_current - nx_paymentTerm);
+                }
+              }
+
+              // Add MMX column: Single column that sums all Mx columns multiplied by their Benefit Amount
+              // MMX_Col = SUM(Mx_i * BenefitAmount_i) for all i
+              let mmxValue = 0;
+              for (const calc of sumxCalculations) {
+                if (!calc.mxColumn) continue;
+                const mxVal = Number(row[calc.mxColumn]) || 0;
+                const benefitAmount = Number(calc.amount) || 0;
+                mmxValue += mxVal * benefitAmount;
+              }
+              newRow["MMX_Col"] = roundTo5(mmxValue);
+
+              return newRow;
+            });
+
+            // Create enhanced columns list
+            const enhancedColumns = [...inputData.columns];
+            // Add NNX columns
+            for (const calc of nnxCalculations) {
+              const nxColumn = calc.nxColumn;
+              const nnxColumnName = `NNX_${nxColumn.replace("Nx_", "")}_Col`;
+              if (!enhancedColumns.find((c) => c.name === nnxColumnName)) {
+                enhancedColumns.push({
+                  name: nnxColumnName,
+                  type: "number",
+                });
+              }
+            }
+            // Add single MMX column (sum of all Mx columns multiplied by Benefit Amount)
+            if (
+              sumxCalculations.length > 0 &&
+              !enhancedColumns.find((c) => c.name === "MMX_Col")
+            ) {
+              enhancedColumns.push({
+                name: "MMX_Col",
+                type: "number",
+              });
+            }
+
+            const enhancedData: DataPreview = {
+              type: "DataPreview",
+              columns: enhancedColumns,
+              rows: enhancedRows,
+              totalRowCount: enhancedRows.length,
+            };
+
             newOutputData = {
               type: "PremiumComponentOutput",
               nnxResults,
-              sumxValue: roundTo5(sumxValue),
+              mmxValue: roundTo5(mmxValue),
               mxResults,
+              data: enhancedData,
             };
           } else if (module.type === ModuleType.AdditionalName) {
-            const inputData = getAndValidateConnectedInput(
+            // Get NNX MMX Calculator output (for validation, but we need the table from its data_in)
+            const premiumComponents = getAndValidateConnectedInput(
               module.id,
-              "data_in",
-              "DataPreview"
+              "premium_components_in",
+              "PremiumComponentOutput"
             );
+
+            // First, try to get table data from PremiumComponentOutput.data (enhanced data with NNX/MMX)
+            let inputData: DataPreview | undefined = premiumComponents.data;
+
+            // If not available, trace back to NNX MMX Calculator's data_in
+            if (!inputData || !inputData.rows || inputData.rows.length === 0) {
+              const premiumComponentsConn = pipelineConnections.find(
+                (c) =>
+                  c.to.moduleId === module.id &&
+                  c.to.portName === "premium_components_in"
+              );
+              if (premiumComponentsConn) {
+                const premiumComponentModule = pipelineModules.find(
+                  (m) => m.id === premiumComponentsConn.from.moduleId
+                );
+                if (premiumComponentModule) {
+                  // Recursively trace back through data_in connections
+                  const getDataFromConnection = (
+                    moduleId: string,
+                    portName: string,
+                    visited: Set<string> = new Set()
+                  ): DataPreview | undefined => {
+                    // Prevent infinite loops
+                    if (visited.has(moduleId)) return undefined;
+                    visited.add(moduleId);
+
+                    const conn = pipelineConnections.find(
+                      (c) =>
+                        c.to.moduleId === moduleId && c.to.portName === portName
+                    );
+                    if (!conn) return undefined;
+
+                    const sourceModule = pipelineModules.find(
+                      (m) => m.id === conn.from.moduleId
+                    );
+                    if (!sourceModule) return undefined;
+
+                    // If source module has outputData of type DataPreview, use it
+                    if (sourceModule.outputData?.type === "DataPreview") {
+                      return sourceModule.outputData as DataPreview;
+                    }
+
+                    // If source module has a data_in connection, recursively trace back
+                    const sourceDataConn = pipelineConnections.find(
+                      (c) =>
+                        c.to.moduleId === sourceModule.id &&
+                        c.to.portName === "data_in"
+                    );
+                    if (sourceDataConn) {
+                      return getDataFromConnection(
+                        sourceModule.id,
+                        "data_in",
+                        visited
+                      );
+                    }
+
+                    return undefined;
+                  };
+
+                  inputData = getDataFromConnection(
+                    premiumComponentModule.id,
+                    "data_in"
+                  );
+                }
+              }
+            }
+
+            if (!inputData || !inputData.rows) {
+              // Check if NNX MMX Calculator is connected
+              const premiumComponentsConnForError = pipelineConnections.find(
+                (c) =>
+                  c.to.moduleId === module.id &&
+                  c.to.portName === "premium_components_in"
+              );
+              if (!premiumComponentsConnForError) {
+                throw new Error(
+                  "Additional Variables requires a connection to NNX MMX Calculator's premium_components_out port."
+                );
+              }
+              // Check if NNX MMX Calculator has data_in connection
+              const premiumComponentModule = pipelineModules.find(
+                (m) => m.id === premiumComponentsConnForError.from.moduleId
+              );
+              if (premiumComponentModule) {
+                const hasDataIn = pipelineConnections.some(
+                  (c) =>
+                    c.to.moduleId === premiumComponentModule.id &&
+                    c.to.portName === "data_in"
+                );
+                if (!hasDataIn) {
+                  throw new Error(
+                    "NNX MMX Calculator must have a data_in connection. Please connect a data source to NNX MMX Calculator's data_in port."
+                  );
+                }
+              }
+              throw new Error(
+                "Input data has no rows. Please ensure NNX MMX Calculator has been executed successfully and has table data available."
+              );
+            }
+
             const policyInfo = getGlobalPolicyInfo();
+
+            // Get default values from DEFAULT_MODULES if parameters are missing or empty
+            const defaultModule = DEFAULT_MODULES.find(
+              (m) => m.type === ModuleType.AdditionalName
+            );
+            const defaultBasicValues = defaultModule?.parameters
+              ?.basicValues || [
+              { name: "α1", value: 0 },
+              { name: "α2", value: 0 },
+              { name: "β1", value: 0 },
+              { name: "β2", value: 0 },
+              { name: "γ", value: 0 },
+            ];
+
+            // Ensure module.parameters exists and initialize with defaults if needed
+            // Re-check and update from currentModules to ensure we have the latest state
+            const modIdxForAdditional = currentModules.findIndex(
+              (m) => m.id === module.id
+            );
+            if (modIdxForAdditional !== -1) {
+              module = currentModules[modIdxForAdditional];
+            }
+
+            // Initialize parameters if missing or empty
+            if (!module.parameters) {
+              module.parameters = {
+                basicValues: JSON.parse(JSON.stringify(defaultBasicValues)), // Deep copy
+                definitions: [],
+              };
+            } else {
+              // Ensure basicValues exists and is valid
+              if (
+                !module.parameters.basicValues ||
+                !Array.isArray(module.parameters.basicValues) ||
+                module.parameters.basicValues.length === 0
+              ) {
+                module.parameters = {
+                  ...module.parameters,
+                  basicValues: JSON.parse(JSON.stringify(defaultBasicValues)), // Deep copy
+                  definitions: module.parameters.definitions || [],
+                };
+              }
+              // Ensure definitions exists
+              if (!module.parameters.definitions) {
+                module.parameters.definitions = [];
+              }
+            }
+
+            // Always update the module in currentModules array to ensure consistency
+            if (modIdxForAdditional !== -1) {
+              currentModules[modIdxForAdditional] = {
+                ...currentModules[modIdxForAdditional],
+                parameters: module.parameters,
+              };
+              // Update module reference to use the updated version
+              module = currentModules[modIdxForAdditional];
+            } else {
+              // If module not found in currentModules, update it anyway
+              const modIdx = currentModules.findIndex(
+                (m) => m.id === module.id
+              );
+              if (modIdx !== -1) {
+                currentModules[modIdx] = {
+                  ...currentModules[modIdx],
+                  parameters: module.parameters,
+                };
+                module = currentModules[modIdx];
+              }
+            }
+
+            // Use the (now guaranteed) module parameters
             const definitions = module.parameters.definitions || [];
             const basicValues = module.parameters.basicValues || [];
-
-            if (!inputData.rows) throw new Error("Input data has no rows.");
 
             const variables: Record<string, number> = {};
 
@@ -1977,61 +2806,143 @@ const App: React.FC = () => {
               }
             }
 
+            // Store both variables output and pass-through NNX MMX Calculator output
+            // We'll handle multiple outputs separately
             newOutputData = {
               type: "AdditionalVariablesOutput",
               variables,
+              data: inputData, // Include table data in output
+              premiumComponents: premiumComponents, // Pass through NNX MMX Calculator output
             };
           } else if (module.type === ModuleType.NetPremiumCalculator) {
-            const premiumComponents = getAndValidateConnectedInput(
+            // Get Additional Variables output (contains premiumComponents, variables, and data)
+            const additionalVarsOutput = getAndValidateConnectedInput(
               module.id,
-              "premium_components_in",
-              "PremiumComponentOutput"
+              "additional_variables_in",
+              "AdditionalVariablesOutput"
             );
+
+            if (!additionalVarsOutput.premiumComponents) {
+              throw new Error(
+                "Additional Variables output does not contain NNX MMX Calculator output."
+              );
+            }
+
+            const premiumComponents = additionalVarsOutput.premiumComponents;
+            const additionalVars = additionalVarsOutput.variables;
             const policyInfo = getGlobalPolicyInfo();
             const { formula, variableName } = module.parameters;
 
-            // Optional: Additional Variables
-            let additionalVars: Record<string, number> = {};
-            const additionalVarsConn = pipelineConnections.find(
-              (c) =>
-                c.to.moduleId === module.id &&
-                c.to.portName === "additional_vars_in"
-            );
-            if (additionalVarsConn) {
-              try {
-                const output = getAndValidateConnectedInput(
-                  module.id,
-                  "additional_vars_in",
-                  "AdditionalVariablesOutput"
-                );
-                additionalVars = output.variables;
-              } catch (e) {
-                throw e;
-              }
-            }
-
             if (!formula) throw new Error("Premium formula is not defined.");
 
-            const context = {
+            // Get table data from Additional Variables output for table column access
+            const additionalData = additionalVarsOutput.data;
+
+            const context: Record<string, any> = {
               ...premiumComponents.nnxResults,
-              SUMX: premiumComponents.sumxValue,
+              MMX: premiumComponents.mmxValue,
               m: policyInfo.paymentTerm,
               n: policyInfo.policyTerm,
               ...additionalVars,
             };
 
-            let expression = formula;
-
-            // STRICT Token Replacement: Only handle [Variable]
-            for (const key in context) {
-              const token = `[${key}]`;
-              // Global replace of [Key] with value
-              expression = expression
-                .split(token)
-                .join(String((context as any)[key]));
+            // Add table column access: if formula references a column, use first row value
+            // This allows formulas like [Nx_Male_Mortality] to access table columns
+            if (
+              additionalData &&
+              additionalData.rows &&
+              additionalData.rows.length > 0
+            ) {
+              const firstRow = additionalData.rows[0];
+              // Add all columns from first row to context (for backward compatibility and direct column access)
+              additionalData.columns.forEach((col) => {
+                if (
+                  firstRow[col.name] !== undefined &&
+                  firstRow[col.name] !== null
+                ) {
+                  context[col.name] = Number(firstRow[col.name]) || 0;
+                }
+              });
             }
 
-            if (/[^0-9+\-*/().\s]/.test(expression)) {
+            let expression = formula;
+
+            // Pre-clean context: Remove all brackets from context values before replacement
+            const cleanedContext: Record<string, any> = {};
+            for (const key in context) {
+              let value = (context as any)[key];
+              if (typeof value === "number") {
+                cleanedContext[key] = value;
+              } else if (typeof value === "string") {
+                // Remove all brackets from string values
+                const cleaned = value
+                  .replace(/^\[+|\]+$/g, "")
+                  .replace(/\[|\]/g, "");
+                const numVal = Number(cleaned);
+                cleanedContext[key] =
+                  !isNaN(numVal) && isFinite(numVal) ? numVal : cleaned;
+              } else {
+                cleanedContext[key] = value;
+              }
+            }
+
+            // STRICT Token Replacement: Only handle [Variable]
+            // Sort keys by length (longest first) to avoid partial matches
+            const sortedKeys = Object.keys(cleanedContext).sort(
+              (a, b) => b.length - a.length
+            );
+
+            for (const key of sortedKeys) {
+              const token = `[${key}]`;
+              // Skip if token doesn't exist in expression
+              if (!expression.includes(token)) continue;
+
+              // Get the cleaned value (guaranteed to have no brackets)
+              let value = cleanedContext[key];
+
+              // Always convert to string and ensure it's a clean number (no brackets)
+              if (typeof value === "number") {
+                expression = expression.split(token).join(String(value));
+              } else {
+                // For non-numbers, ensure no brackets
+                const cleanValue = String(value).replace(/\[|\]/g, "");
+                expression = expression.split(token).join(cleanValue);
+              }
+            }
+
+            // Aggressive cleanup: Remove ALL bracket patterns
+            // Remove any double brackets (multiple passes to catch nested cases)
+            let prevExpression = "";
+            let iterationCount = 0;
+            while (prevExpression !== expression && iterationCount < 10) {
+              prevExpression = expression;
+              iterationCount++;
+              // Remove triple brackets first
+              expression = expression.replace(/\[\[\[([^\]]*)\]\]\]/g, "[$1]");
+              // Remove double brackets
+              expression = expression.replace(/\[\[([^\]]*)\]\]/g, "$1");
+              // Remove any remaining brackets around numbers
+              expression = expression.replace(/\[(\d+\.?\d*)\]/g, "$1");
+            }
+            // Final pass: Remove any brackets around variable-like patterns that are actually numbers
+            expression = expression.replace(
+              /\[\[?([A-Za-z_][A-Za-z0-9_]*)\]\]?/g,
+              (match, varName) => {
+                // If it's in our context and is a number, remove brackets
+                if (cleanedContext[varName] !== undefined) {
+                  const val = cleanedContext[varName];
+                  return typeof val === "number" ? String(val) : `[${varName}]`;
+                }
+                // If not found, keep single bracket only
+                return `[${varName}]`;
+              }
+            );
+            // Final cleanup: Remove any remaining double brackets
+            expression = expression.replace(/\[\[([^\]]*)\]\]/g, "[$1]");
+            // Remove any single brackets around numbers
+            expression = expression.replace(/\[(\d+\.?\d*)\]/g, "$1");
+
+            if (/[^0-9+\-*/().\s<>!=?:&|]/.test(expression)) {
               throw new Error(
                 `Invalid characters or unresolved variables in formula: ${expression}`
               );
@@ -2059,6 +2970,7 @@ const App: React.FC = () => {
 
             // Optional: Additional Variables
             let additionalVars: Record<string, number> = {};
+            let tableData: DataPreview | null = null;
             const additionalVarsConn = pipelineConnections.find(
               (c) =>
                 c.to.moduleId === module.id &&
@@ -2072,8 +2984,50 @@ const App: React.FC = () => {
                   "AdditionalVariablesOutput"
                 );
                 additionalVars = output.variables;
+                // Get table data from Additional Variables output
+                if (output.data) {
+                  tableData = output.data;
+                }
               } catch (e) {
                 throw e;
+              }
+            }
+
+            // Fallback: If table data not available from Additional Variables, try to get from Net Premium Calculator's source
+            if (!tableData) {
+              // Find Net Premium Calculator module
+              const netPremiumConn = pipelineConnections.find(
+                (c) =>
+                  c.to.moduleId === module.id &&
+                  c.to.portName === "net_premium_in"
+              );
+              if (netPremiumConn) {
+                const netPremiumModule = currentModules.find(
+                  (m) => m.id === netPremiumConn.from.moduleId
+                );
+                if (netPremiumModule) {
+                  // Find Additional Variables connected to Net Premium Calculator
+                  const additionalVarsConnForNet = pipelineConnections.find(
+                    (c) =>
+                      c.to.moduleId === netPremiumModule.id &&
+                      c.to.portName === "additional_variables_in"
+                  );
+                  if (additionalVarsConnForNet) {
+                    const additionalVarModule = currentModules.find(
+                      (m) => m.id === additionalVarsConnForNet.from.moduleId
+                    );
+                    if (
+                      additionalVarModule?.outputData?.type ===
+                      "AdditionalVariablesOutput"
+                    ) {
+                      const output =
+                        additionalVarModule.outputData as AdditionalVariablesOutput;
+                      if (output.data) {
+                        tableData = output.data;
+                      }
+                    }
+                  }
+                }
               }
             }
 
@@ -2089,13 +3043,80 @@ const App: React.FC = () => {
 
             let expression = formula;
 
-            // STRICT Token Replacement: Only handle [Variable]
+            // Pre-clean context: Remove all brackets from context values before replacement
+            const cleanedContext: Record<string, any> = {};
             for (const key in context) {
-              const token = `[${key}]`;
-              expression = expression
-                .split(token)
-                .join(String((context as any)[key]));
+              let value = (context as any)[key];
+              if (typeof value === "number") {
+                cleanedContext[key] = value;
+              } else if (typeof value === "string") {
+                // Remove all brackets from string values
+                const cleaned = value
+                  .replace(/^\[+|\]+$/g, "")
+                  .replace(/\[|\]/g, "");
+                const numVal = Number(cleaned);
+                cleanedContext[key] =
+                  !isNaN(numVal) && isFinite(numVal) ? numVal : cleaned;
+              } else {
+                cleanedContext[key] = value;
+              }
             }
+
+            // STRICT Token Replacement: Only handle [Variable]
+            // Sort keys by length (longest first) to avoid partial matches
+            const sortedKeys = Object.keys(cleanedContext).sort(
+              (a, b) => b.length - a.length
+            );
+
+            for (const key of sortedKeys) {
+              const token = `[${key}]`;
+              // Skip if token doesn't exist in expression
+              if (!expression.includes(token)) continue;
+
+              // Get the cleaned value (guaranteed to have no brackets)
+              let value = cleanedContext[key];
+
+              // Always convert to string and ensure it's a clean number (no brackets)
+              if (typeof value === "number") {
+                expression = expression.split(token).join(String(value));
+              } else {
+                // For non-numbers, ensure no brackets
+                const cleanValue = String(value).replace(/\[|\]/g, "");
+                expression = expression.split(token).join(cleanValue);
+              }
+            }
+
+            // Aggressive cleanup: Remove ALL bracket patterns
+            // Remove any double brackets (multiple passes to catch nested cases)
+            let prevExpression = "";
+            let iterationCount = 0;
+            while (prevExpression !== expression && iterationCount < 10) {
+              prevExpression = expression;
+              iterationCount++;
+              // Remove triple brackets first
+              expression = expression.replace(/\[\[\[([^\]]*)\]\]\]/g, "[$1]");
+              // Remove double brackets
+              expression = expression.replace(/\[\[([^\]]*)\]\]/g, "[$1]");
+              // Remove any remaining brackets around numbers
+              expression = expression.replace(/\[(\d+\.?\d*)\]/g, "$1");
+            }
+            // Final pass: Remove any brackets around variable-like patterns that are actually numbers
+            expression = expression.replace(
+              /\[\[?([A-Za-z_][A-Za-z0-9_]*)\]\]?/g,
+              (match, varName) => {
+                // If it's in our context and is a number, remove brackets
+                if (cleanedContext[varName] !== undefined) {
+                  const val = cleanedContext[varName];
+                  return typeof val === "number" ? String(val) : `[${varName}]`;
+                }
+                // If not found, keep single bracket only
+                return `[${varName}]`;
+              }
+            );
+            // Final cleanup: Remove any remaining double brackets
+            expression = expression.replace(/\[\[([^\]]*)\]\]/g, "[$1]");
+            // Remove any single brackets around numbers
+            expression = expression.replace(/\[(\d+\.?\d*)\]/g, "$1");
 
             // Process IF statements
             expression = processIfStatements(expression);
@@ -2117,6 +3138,118 @@ const App: React.FC = () => {
               substitutedFormula: expression,
               grossPremium: roundTo5(grossPremium),
               variables: context,
+              data: tableData || undefined, // Include table data for Reserve Calculator
+            };
+          } else if (module.type === ModuleType.ReserveCalculator) {
+            const grossPremiumInput = getAndValidateConnectedInput(
+              module.id,
+              "gross_premium_in",
+              "GrossPremiumOutput"
+            );
+
+            // Get table data directly from Gross Premium Calculator output
+            let inputData: DataPreview | null = null;
+            if (grossPremiumInput.data) {
+              inputData = grossPremiumInput.data;
+            }
+
+            if (!inputData || !inputData.rows)
+              throw new Error(
+                "Input table data is required. Please ensure Gross Premium Calculator is connected to Additional Variables module which provides table data."
+              );
+
+            const {
+              formulaForPaymentTermOrLess,
+              formulaForGreaterThanPaymentTerm,
+              reserveColumnName = "Reserve",
+            } = module.parameters;
+
+            // Get policy info for PaymentTerm
+            let policyInfo: PolicyInfoOutput | null = null;
+            try {
+              policyInfo = getGlobalPolicyInfo();
+            } catch (e) {
+              throw new Error(
+                "Policy Info is required for Reserve Calculator."
+              );
+            }
+
+            if (
+              !formulaForPaymentTermOrLess &&
+              !formulaForGreaterThanPaymentTerm
+            ) {
+              throw new Error("At least one reserve formula must be defined.");
+            }
+
+            const outputRows = inputData.rows.map((r) => ({ ...r }));
+            const outputColumnsInfo = [...inputData.columns];
+            const paymentTerm = policyInfo.paymentTerm;
+
+            // Build context from Gross Premium variables and table columns
+            for (let rowIndex = 0; rowIndex < outputRows.length; rowIndex++) {
+              const row = outputRows[rowIndex];
+              let evalFormula = "";
+
+              // Determine which formula to use based on row index vs payment term
+              // Row index 0 corresponds to first row (age = entryAge)
+              // Payment Term m means rows 0 to m-1 use first formula, rows m+ use second
+              if (rowIndex <= paymentTerm - 1) {
+                evalFormula = formulaForPaymentTermOrLess || "";
+              } else {
+                evalFormula = formulaForGreaterThanPaymentTerm || "";
+              }
+
+              if (!evalFormula) continue;
+
+              // Build context: Gross Premium variables + table row values
+              const context: Record<string, any> = {
+                ...grossPremiumInput.variables,
+                PaymentTerm: paymentTerm,
+                PolicyTerm: policyInfo.policyTerm,
+              };
+
+              // Replace table column values
+              const keys = Object.keys(row).sort((a, b) => b.length - a.length);
+              for (const key of keys) {
+                const val = row[key];
+                evalFormula = evalFormula
+                  .split(`[${key}]`)
+                  .join(String(val ?? 0));
+              }
+
+              // Replace Gross Premium variables and policy terms
+              for (const key in context) {
+                const token = `[${key}]`;
+                evalFormula = evalFormula
+                  .split(token)
+                  .join(String(context[key]));
+              }
+
+              // Process IF statements
+              evalFormula = processIfStatements(evalFormula);
+
+              try {
+                const result = new Function("return " + evalFormula)();
+                row[reserveColumnName] =
+                  typeof result === "number" ? roundTo5(result) : result;
+              } catch (e) {
+                row[reserveColumnName] = null;
+              }
+            }
+
+            // Add Reserve column to columns info if it doesn't exist
+            if (!outputColumnsInfo.some((c) => c.name === reserveColumnName)) {
+              outputColumnsInfo.push({
+                name: reserveColumnName,
+                type: "number",
+              });
+            }
+
+            newOutputData = {
+              type: "DataPreview",
+              columns: outputColumnsInfo,
+              totalRowCount: outputRows.length,
+              rows: outputRows,
             };
           } else if (module.type === ModuleType.PipelineExplainer) {
             // Generate a comprehensive report of the pipeline
@@ -2244,7 +3377,7 @@ const App: React.FC = () => {
                   moduleId: mod.id,
                   moduleName: mod.name,
                   moduleType: mod.type,
-                  description: "Aggregated NNX and SUMX components.",
+                  description: "Aggregated NNX and MMX components.",
                   details: [
                     ...(mod.parameters.nnxCalculations || []).map((c: any) => ({
                       label: "NNX Source",
@@ -2252,7 +3385,7 @@ const App: React.FC = () => {
                     })),
                     ...(mod.parameters.sumxCalculations || []).map(
                       (c: any) => ({
-                        label: "SUMX Source",
+                        label: "MMX Source",
                         value: `${c.mxColumn} (Amount: ${c.amount})`,
                       })
                     ),
@@ -2343,13 +3476,14 @@ const App: React.FC = () => {
 
           const finalModuleState = {
             ...module,
+            parameters: module.parameters, // Preserve updated parameters (including defaults)
             status: newStatus,
             outputData: newOutputData,
           };
-          const moduleIndex = currentModules.findIndex(
+          const errorModuleIdx = currentModules.findIndex(
             (m) => m.id === moduleId
           );
-          currentModules[moduleIndex] = finalModuleState;
+          currentModules[errorModuleIdx] = finalModuleState;
 
           if (throwOnError) {
             throw new Error(error.message);
@@ -2359,11 +3493,14 @@ const App: React.FC = () => {
 
         const finalModuleState = {
           ...module,
+          parameters: module.parameters, // Preserve updated parameters (including defaults)
           status: newStatus,
           outputData: newOutputData,
         };
-        const moduleIndex = currentModules.findIndex((m) => m.id === moduleId);
-        currentModules[moduleIndex] = finalModuleState;
+        const successModuleIdx = currentModules.findIndex(
+          (m) => m.id === moduleId
+        );
+        currentModules[successModuleIdx] = finalModuleState;
       }
       return currentModules;
     },
@@ -2842,6 +3979,7 @@ const App: React.FC = () => {
         ModuleType.AdditionalName,
         ModuleType.NetPremiumCalculator,
         ModuleType.GrossPremiumCalculator,
+        ModuleType.ReserveCalculator,
       ],
     },
     {
@@ -2914,33 +4052,138 @@ const App: React.FC = () => {
 
             <div className="h-5 border-l border-gray-700"></div>
 
-            <div className="relative">
+            {/* Samples Button */}
+            <div className="relative samples-menu-container">
               <button
-                onClick={() => setIsSampleMenuOpen(!isSampleMenuOpen)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsSamplesMenuOpen(!isSamplesMenuOpen);
+                  setIsMyWorkMenuOpen(false);
+                }}
                 className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md font-semibold transition-colors ${
-                  isSampleMenuOpen
+                  isSamplesMenuOpen
                     ? "bg-purple-600 text-white"
                     : "bg-gray-700 hover:bg-gray-600 text-gray-200"
                 }`}
-                title="Load Sample Models"
+                title="Shared Samples"
               >
                 <BeakerIcon className="h-4 w-4" />
                 Samples
               </button>
-              {isSampleMenuOpen && (
-                <div className="absolute top-full left-0 mt-2 w-48 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 overflow-hidden">
-                  <div className="p-2 text-xs font-bold text-gray-500 uppercase">
-                    Predefined Models
+              {isSamplesMenuOpen && (
+                <div 
+                  className="absolute top-full left-0 mt-2 w-56 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 overflow-hidden"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="p-2 text-xs font-bold text-gray-500 uppercase border-b border-gray-700">
+                    Shared Models
                   </div>
-                  {PREDEFINED_SAMPLES.map((sample, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => handleLoadSample(sample)}
-                      className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors border-b border-gray-700 last:border-0"
-                    >
-                      {sample.name}
-                    </button>
-                  ))}
+                  <div className="max-h-64 overflow-y-auto">
+                    {sharedSamples.length === 0 ? (
+                      <div className="px-4 py-2 text-sm text-gray-400 italic">
+                        No shared samples
+                      </div>
+                    ) : (
+                      sharedSamples.map((sample, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between group border-b border-gray-700 last:border-0 hover:bg-gray-700 transition-colors"
+                        >
+                          <button
+                            onClick={() => handleLoadSample(sample)}
+                            className="flex-1 text-left px-4 py-2 text-sm text-gray-200 hover:text-white transition-colors"
+                          >
+                            {sample.name}
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* My Work Button */}
+            <div className="relative my-work-menu-container">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsMyWorkMenuOpen(!isMyWorkMenuOpen);
+                  setIsSamplesMenuOpen(false);
+                }}
+                className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md font-semibold transition-colors ${
+                  isMyWorkMenuOpen
+                    ? "bg-purple-600 text-white"
+                    : "bg-gray-700 hover:bg-gray-600 text-gray-200"
+                }`}
+                title="My Personal Work"
+              >
+                <FolderOpenIcon className="h-4 w-4" />
+                My Work
+              </button>
+              {isMyWorkMenuOpen && (
+                <div 
+                  className="absolute top-full left-0 mt-2 w-56 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 overflow-hidden"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* Load from File button */}
+                  <button
+                    onClick={handleLoadPersonalWorkFromFile}
+                    className="w-full text-left px-4 py-2.5 text-sm font-semibold bg-green-600 hover:bg-green-500 text-white transition-colors border-b border-gray-700"
+                  >
+                    📂 Load from File
+                  </button>
+
+                  {/* Save Current Model button */}
+                  <button
+                    onClick={handleSaveToPersonalWork}
+                    className="w-full text-left px-4 py-2.5 text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-colors border-b border-gray-700"
+                  >
+                    💾 Save Current Model
+                  </button>
+
+                  {/* Set as Initial Screen button */}
+                  <button
+                    onClick={handleSetAsInitial}
+                    className="w-full text-left px-4 py-2.5 text-sm font-semibold bg-yellow-600 hover:bg-yellow-500 text-white transition-colors border-b border-gray-700"
+                  >
+                    ⭐ Set as Initial Screen
+                  </button>
+
+                  <div className="p-2 text-xs font-bold text-gray-500 uppercase border-b border-gray-700">
+                    My Saved Models
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {personalWork.length === 0 ? (
+                      <div className="px-4 py-2 text-sm text-gray-400 italic">
+                        No saved models
+                      </div>
+                    ) : (
+                      personalWork.map((work, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between group border-b border-gray-700 last:border-0 hover:bg-gray-700 transition-colors"
+                        >
+                          <button
+                            onClick={() => handleLoadSample(work)}
+                            className="flex-1 text-left px-4 py-2 text-sm text-gray-200 hover:text-white transition-colors"
+                          >
+                            {work.name}
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeletePersonalWork(work.name, idx);
+                            }}
+                            className="px-3 py-2 text-gray-400 hover:text-red-400 hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100"
+                            title={`Delete "${work.name}"`}
+                          >
+                            <XMarkIcon className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -3343,6 +4586,9 @@ const App: React.FC = () => {
           connections={connections}
           projectName={productName}
           folderHandle={folderHandleRef.current}
+          onRunModule={async (id) => {
+            await runSimulation(id);
+          }}
         />
       )}
 
@@ -3376,6 +4622,36 @@ const App: React.FC = () => {
           executePipeline={executePipeline}
           folderHandle={folderHandleRef.current}
         />
+      )}
+
+      {/* Overwrite Confirmation Dialog */}
+      {showOverwriteConfirm && pendingSample && overwriteContext && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 text-white rounded-lg shadow-xl w-full max-w-md p-6">
+            <h3 className="text-lg font-bold mb-4">
+              {overwriteContext === 'shared' ? 'Overwrite Shared Sample?' : 'Overwrite Personal Work?'}
+            </h3>
+            <p className="text-sm text-gray-300 mb-6">
+              {overwriteContext === 'shared' 
+                ? `A shared sample with the name "${pendingSample.name}" already exists. Do you want to overwrite it?`
+                : `Personal work with the name "${pendingSample.name}" already exists. Do you want to overwrite it?`}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={handleCancelOverwrite}
+                className="px-4 py-2 text-sm bg-gray-700 hover:bg-gray-600 rounded-md font-semibold transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmOverwrite}
+                className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 rounded-md font-semibold transition-colors"
+              >
+                Overwrite
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
