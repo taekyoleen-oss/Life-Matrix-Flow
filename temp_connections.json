@@ -1,0 +1,123 @@
+﻿[
+    {
+        "id":  "conn-1",
+        "from":  {
+                     "moduleId":  "load-1",
+                     "portName":  "data_out"
+                 },
+        "to":  {
+                   "moduleId":  "select-rates-1",
+                   "portName":  "risk_data_in"
+               }
+    },
+    {
+        "id":  "conn-3",
+        "from":  {
+                     "moduleId":  "select-rates-1",
+                     "portName":  "selected_rates_out"
+                 },
+        "to":  {
+                   "moduleId":  "select-data-1",
+                   "portName":  "data_in"
+               }
+    },
+    {
+        "id":  "conn-3-1",
+        "from":  {
+                     "moduleId":  "select-data-1",
+                     "portName":  "data_out"
+                 },
+        "to":  {
+                   "moduleId":  "rate-modifier-1",
+                   "portName":  "data_in"
+               }
+    },
+    {
+        "id":  "conn-4",
+        "from":  {
+                     "moduleId":  "rate-modifier-1",
+                     "portName":  "data_out"
+                 },
+        "to":  {
+                   "moduleId":  "survivors-1",
+                   "portName":  "data_in"
+               }
+    },
+    {
+        "id":  "conn-5",
+        "from":  {
+                     "moduleId":  "survivors-1",
+                     "portName":  "data_out"
+                 },
+        "to":  {
+                   "moduleId":  "claims-1",
+                   "portName":  "data_in"
+               }
+    },
+    {
+        "id":  "conn-6",
+        "from":  {
+                     "moduleId":  "claims-1",
+                     "portName":  "data_out"
+                 },
+        "to":  {
+                   "moduleId":  "nx-mx-calculator-1",
+                   "portName":  "data_in"
+               }
+    },
+    {
+        "id":  "conn-8",
+        "from":  {
+                     "moduleId":  "nx-mx-calculator-1",
+                     "portName":  "data_out"
+                 },
+        "to":  {
+                   "moduleId":  "premium-component-1",
+                   "portName":  "data_in"
+               }
+    },
+    {
+        "id":  "conn-10",
+        "from":  {
+                     "moduleId":  "premium-component-1",
+                     "portName":  "premium_components_out"
+                 },
+        "to":  {
+                   "moduleId":  "additional-name-1",
+                   "portName":  "premium_components_in"
+               }
+    },
+    {
+        "id":  "conn-10-1",
+        "from":  {
+                     "moduleId":  "additional-name-1",
+                     "portName":  "output"
+                 },
+        "to":  {
+                   "moduleId":  "net-premium-calculator-1",
+                   "portName":  "additional_variables_in"
+               }
+    },
+    {
+        "id":  "conn-12",
+        "from":  {
+                     "moduleId":  "net-premium-calculator-1",
+                     "portName":  "premium_out"
+                 },
+        "to":  {
+                   "moduleId":  "gross-premium-calculator-1",
+                   "portName":  "net_premium_in"
+               }
+    },
+    {
+        "id":  "conn-13",
+        "from":  {
+                     "moduleId":  "gross-premium-calculator-1",
+                     "portName":  "gross_premium_out"
+                 },
+        "to":  {
+                   "moduleId":  "reserve-calculator-1",
+                   "portName":  "gross_premium_in"
+               }
+    }
+]

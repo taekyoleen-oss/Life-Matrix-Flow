@@ -87,8 +87,19 @@ const getModuleDefault = (type: ModuleType) => {
 
 const sampleRiskData = SAMPLE_DATA.find((d) => d.name === "risk_rates.csv");
 
+// Load initial modules and connections from New Life Product.lifx
+// This will be populated from the shared samples JSON file
+// Since loadSharedSamples is async, we'll load it in useEffect and set initial state
+// For now, return empty arrays - the actual loading happens in useEffect
+const loadInitialModelFromLifx = (): { modules: CanvasModule[]; connections: Connection[] } => {
+  // This will be populated asynchronously in useEffect
+  return { modules: [], connections: [] };
+};
+
+const { modules: lifxModules, connections: lifxConnections } = loadInitialModelFromLifx();
+
 // Initial Layout Configuration (U-shape flow)
-const initialModules: CanvasModule[] = [
+const initialModules: CanvasModule[] = lifxModules.length > 0 ? lifxModules : [
   // Row 1: Data & Basic Calc (Left to Right)
   {
     id: "load-1",
@@ -274,7 +285,7 @@ const initialModules: CanvasModule[] = [
   },
 ];
 
-const initialConnections: Connection[] = [
+const initialConnections: Connection[] = lifxConnections.length > 0 ? lifxConnections : [
   {
     id: "conn-1",
     from: { moduleId: "load-1", portName: "data_out" },
@@ -425,6 +436,42 @@ const App: React.FC = () => {
   const [connections, _setConnections] = useState<Connection[]>(
     initialConnectionsToUse
   );
+  
+  // Load initial model from "종신보험" sample if no localStorage state and modules are empty
+  const initialModelLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!initialModelLoadedRef.current && !loadedInitialState && modules.length === 0 && initialModules.length === 0) {
+      initialModelLoadedRef.current = true;
+      loadSharedSamples().then((samples) => {
+        const sample = samples.find((s) => s.name === "종신보험");
+        if (sample && sample.modules && sample.connections) {
+          // Convert JSON modules to CanvasModule format
+          const convertedModules: CanvasModule[] = sample.modules.map((m: any) => ({
+            id: m.id,
+            type: m.type as ModuleType,
+            name: m.name || "",
+            status: (m.status as ModuleStatus) || ModuleStatus.Pending,
+            parameters: m.parameters || {},
+            inputs: m.inputs || [],
+            outputs: m.outputs || [],
+            position: m.position || { x: 0, y: 0 },
+            outputData: m.outputData,
+          }));
+          const convertedConnections: Connection[] = sample.connections.map((c: any) => ({
+            id: c.id,
+            from: c.from,
+            to: c.to,
+          }));
+          // Set modules and connections
+          resetModules(convertedModules);
+          _setConnections(convertedConnections);
+          setProductName(sample.name || "New Life Product");
+        }
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadedInitialState, modules.length, initialModules.length]);
+
   const [selectedModuleIds, setSelectedModuleIds] = useState<string[]>([]);
   const [productName, setProductName] = useState("New Life Product");
   const [isEditingProductName, setIsEditingProductName] = useState(false);
@@ -1940,7 +1987,7 @@ const App: React.FC = () => {
             if (!inputData.rows)
               throw new Error("Input data is valid but contains no rows.");
 
-            const { ageColumn, mortalityColumn, calculations } =
+            const { ageColumn, mortalityColumn, calculations, addFixedLx } =
               module.parameters;
 
             if (!ageColumn || ageColumn === "None")
@@ -2033,6 +2080,18 @@ const App: React.FC = () => {
                 outputColumnsInfo.push({ name: dxColName, type: "number" });
               }
             }
+
+            // Add fixed lx column if checkbox is checked
+            if (addFixedLx) {
+              const fixedLxColName = "lx";
+              for (const row of outputRows) {
+                row[fixedLxColName] = 100000;
+              }
+              if (!outputColumnsInfo.some((c) => c.name === fixedLxColName)) {
+                outputColumnsInfo.push({ name: fixedLxColName, type: "number" });
+              }
+            }
+
             newOutputData = {
               type: "DataPreview",
               columns: outputColumnsInfo,
@@ -3933,6 +3992,48 @@ const App: React.FC = () => {
             setConnections((prev) => [...prev, ...newConnections]);
             setSelectedModuleIds(newModules.map((m) => m.id));
           }
+        } else if (e.key === "x") {
+          // Cut (copy and delete)
+          if (selectedModuleIds.length > 0) {
+            e.preventDefault();
+            pasteOffset.current = 0;
+            const selectedModules = modules.filter((m) =>
+              selectedModuleIds.includes(m.id)
+            );
+            const selectedIdsSet = new Set(selectedModuleIds);
+            const internalConnections = connections.filter(
+              (c) =>
+                selectedIdsSet.has(c.from.moduleId) &&
+                selectedIdsSet.has(c.to.moduleId)
+            );
+            setClipboard({
+              modules: JSON.parse(JSON.stringify(selectedModules)),
+              connections: JSON.parse(JSON.stringify(internalConnections)),
+            });
+            deleteModules([...selectedModuleIds]);
+          }
+        } else if (e.key === "s") {
+          e.preventDefault();
+          handleSavePipeline();
+        } else if (e.key === "=" || e.key === "+") {
+          // Zoom in (step by step)
+          e.preventDefault();
+          const newScale = Math.min(2, scale + 0.1);
+          setScale(newScale);
+        } else if (e.key === "-" || e.key === "_") {
+          // Zoom out (step by step)
+          e.preventDefault();
+          const newScale = Math.max(0.2, scale - 0.1);
+          setScale(newScale);
+        } else if (e.key === "0") {
+          // Fit to view
+          e.preventDefault();
+          handleFitToView();
+        } else if (e.key === "1") {
+          // 100% view
+          e.preventDefault();
+          setScale(1);
+          setPan({ x: 0, y: 0 });
         }
       } else if (
         selectedModuleIds.length > 0 &&
@@ -3955,6 +4056,11 @@ const App: React.FC = () => {
     connections,
     clipboard,
     deleteModules,
+    scale,
+    setScale,
+    setPan,
+    handleFitToView,
+    handleSavePipeline,
   ]);
 
   const categorizedModules = [

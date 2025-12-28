@@ -189,6 +189,7 @@ export const DEFAULT_MODULES: Omit<CanvasModule, "id" | "position" | "name">[] =
         ageColumn: "Age",
         mortalityColumn: "None",
         calculations: [],
+        addFixedLx: false,
       },
       inputs: [{ name: "data_in", type: "data" }],
       outputs: [{ name: "data_out", type: "data" }],

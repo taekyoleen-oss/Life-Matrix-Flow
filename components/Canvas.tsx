@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback, useRef, MouseEvent, TouchEvent, DragEvent, WheelEvent } from 'react';
+import React, { useState, useCallback, useRef, useEffect, MouseEvent, TouchEvent, DragEvent, WheelEvent } from 'react';
 import { CanvasModule, Connection, ModuleType, ModuleStatus } from '../types';
 import { ComponentRenderer as ModuleNode } from './ComponentRenderer';
 
@@ -38,6 +38,7 @@ export const Canvas: React.FC<CanvasProps> = ({
   const mouseDownStart = useRef({ x: 0, y: 0 }); // Store initial mouse position for panning detection
   const [selectionBox, setSelectionBox] = useState<{ x1: number, y1: number, x2: number, y2: number } | null>(null);
   const isSelecting = useRef(false);
+  const isSpacePressed = useRef(false);
   const dragInfoRef = useRef<{
     draggedModuleIds: string[];
     startPositions: Map<string, { x: number, y: number }>;
@@ -221,8 +222,8 @@ export const Canvas: React.FC<CanvasProps> = ({
         return;
     }
     if (e.target === e.currentTarget && e.button === 0) {
-        // If Shift key is pressed, start panning mode immediately
-        if (e.shiftKey) {
+        // If Space key is pressed, start panning mode immediately
+        if (isSpacePressed.current) {
             e.preventDefault();
             isPanning.current = true;
             panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
@@ -249,8 +250,8 @@ export const Canvas: React.FC<CanvasProps> = ({
       } else if (isPanning.current) {
           setPan({ x: e.clientX - panStart.current.x, y: e.clientY - panStart.current.y });
       } else if (isSelecting.current && selectionBox && canvasContainerRef.current) {
-          // Check if Shift key is pressed to switch to panning mode
-          if (e.shiftKey) {
+          // Check if Space key is pressed to switch to panning mode
+          if (isSpacePressed.current) {
               isSelecting.current = false;
               setSelectionBox(null);
               isPanning.current = true;
@@ -289,6 +290,31 @@ export const Canvas: React.FC<CanvasProps> = ({
   };
   
   const handleWheel = (e: WheelEvent) => {
+        // Ctrl + Wheel: Natural zoom
+        if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            const delta = e.deltaY * -0.001;
+            const newScale = Math.max(0.2, Math.min(2, scale + delta));
+            if (!canvasContainerRef.current) return;
+            const canvasRect = canvasContainerRef.current.getBoundingClientRect();
+            const mousePoint = { x: e.clientX - canvasRect.left, y: e.clientY - canvasRect.top };
+            const canvasPoint = { x: (mousePoint.x - pan.x) / scale, y: (mousePoint.y - pan.y) / scale };
+            const newPan = { x: mousePoint.x - canvasPoint.x * newScale, y: mousePoint.y - canvasPoint.y * newScale };
+            setScale(newScale); 
+            setPan(newPan);
+            return;
+        }
+        
+        // Shift + Wheel: Horizontal scroll
+        if (e.shiftKey) {
+            e.preventDefault();
+            const deltaX = e.deltaY; // Use deltaY for horizontal scrolling when Shift is pressed
+            if (!canvasContainerRef.current) return;
+            setPan(prev => ({ x: prev.x - deltaX, y: prev.y }));
+            return;
+        }
+        
+        // Default: Normal zoom (if not Ctrl or Shift)
         e.preventDefault();
         const delta = e.deltaY * -0.001;
         const newScale = Math.max(0.2, Math.min(2, scale + delta));
@@ -297,7 +323,8 @@ export const Canvas: React.FC<CanvasProps> = ({
         const mousePoint = { x: e.clientX - canvasRect.left, y: e.clientY - canvasRect.top };
         const canvasPoint = { x: (mousePoint.x - pan.x) / scale, y: (mousePoint.y - pan.y) / scale };
         const newPan = { x: mousePoint.x - canvasPoint.x * newScale, y: mousePoint.y - canvasPoint.y * newScale };
-        setScale(newScale); setPan(newPan);
+        setScale(newScale); 
+        setPan(newPan);
   };
 
   const handleStartConnection = useCallback((moduleId: string, portName: string, clientX: number, clientY: number, isInput: boolean) => {
@@ -355,6 +382,36 @@ export const Canvas: React.FC<CanvasProps> = ({
   
     const handleCanvasTouchEnd = (e: React.TouchEvent) => { if (dragConnection) cancelDragConnection(); }
     const handleConnectionDoubleClick = useCallback((connectionId: string) => { setConnections(prev => prev.filter(c => c.id !== connectionId)); }, [setConnections]);
+
+  // Handle Space key for panning
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
+        e.preventDefault();
+        isSpacePressed.current = true;
+        if (canvasContainerRef.current) {
+          canvasContainerRef.current.style.cursor = 'grabbing';
+        }
+      }
+    };
+    
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        isSpacePressed.current = false;
+        if (!isPanning.current && canvasContainerRef.current) {
+          canvasContainerRef.current.style.cursor = 'grab';
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [canvasContainerRef]);
 
   return (
     <div className="w-full h-full relative cursor-grab" onDragOver={handleDragOver} onDrop={handleDrop} onMouseDown={handleCanvasMouseDown} onMouseMove={handleCanvasMouseMove} onMouseUp={handleCanvasMouseUp} onMouseLeave={handleCanvasMouseUp} onTouchEnd={handleCanvasTouchEnd} onWheel={handleWheel}>

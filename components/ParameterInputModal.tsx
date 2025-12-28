@@ -18,6 +18,16 @@ import {
 } from "../types";
 import { XCircleIcon, XMarkIcon, PlayIcon } from "./icons";
 import { SAMPLE_DATA } from "../sampleData";
+import { ExcelInputModal } from "./ExcelInputModal";
+
+// Dynamic import for xlsx to handle module resolution issues
+let XLSX: any = null;
+const loadXLSX = async () => {
+  if (!XLSX) {
+    XLSX = await import("xlsx");
+  }
+  return XLSX;
+};
 
 interface ParameterInputModalProps {
   module: CanvasModule;
@@ -1526,16 +1536,68 @@ const LoadDataParams: React.FC<{
   folderHandle: FileSystemDirectoryHandle | null;
 }> = ({ parameters, onParametersChange, folderHandle }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showExcelModal, setShowExcelModal] = useState(false);
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  // 엑셀 파일을 CSV로 변환하는 함수
+  const convertExcelToCSV = async (workbook: any, sheetName?: string): Promise<string> => {
+    const xlsx = await loadXLSX();
+    const targetSheet = sheetName || workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[targetSheet];
+    const jsonData = xlsx.utils.sheet_to_json(worksheet, {
+      header: 1,
+      defval: null,
+      raw: false,
+    });
+
+    return jsonData
+      .map((row: any) => {
+        return row
+          .map((cell: any) => {
+            if (cell === null || cell === undefined) return "";
+            const str = String(cell);
+            if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+              return `"${str.replace(/"/g, '""')}"`;
+            }
+            return str;
+          })
+          .join(",");
+      })
+      .join("\n");
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const content = e.target?.result as string;
-        onParametersChange({ source: file.name, fileContent: content });
-      };
-      reader.readAsText(file);
+      const fileName = file.name.toLowerCase();
+      
+      if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
+        // 엑셀 파일 처리
+        try {
+          const xlsx = await loadXLSX();
+          const arrayBuffer = await file.arrayBuffer();
+          const workbook = xlsx.read(arrayBuffer, { type: "array" });
+          const firstSheetName = workbook.SheetNames[0];
+          const csvContent = await convertExcelToCSV(workbook, firstSheetName);
+
+          onParametersChange({
+            source: file.name,
+            fileContent: csvContent,
+            fileType: "excel",
+            sheetName: firstSheetName,
+          });
+        } catch (error) {
+          console.error("Error processing Excel file:", error);
+          alert("엑셀 파일 처리 중 오류가 발생했습니다.");
+        }
+      } else {
+        // CSV 파일 처리
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const content = e.target?.result as string;
+          onParametersChange({ source: file.name, fileContent: content, fileType: "csv" });
+        };
+        reader.readAsText(file);
+      }
     }
   };
 
@@ -1550,15 +1612,41 @@ const LoadDataParams: React.FC<{
           startIn: folderHandle,
           types: [
             { description: "CSV Files", accept: { "text/csv": [".csv"] } },
+            {
+              description: "Excel Files",
+              accept: {
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+                "application/vnd.ms-excel": [".xls"],
+              },
+            },
           ],
         });
         const file = await fileHandle.getFile();
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const content = e.target?.result as string;
-          onParametersChange({ source: file.name, fileContent: content });
-        };
-        reader.readAsText(file);
+        const fileName = file.name.toLowerCase();
+
+        if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
+          // 엑셀 파일 처리
+          const xlsx = await loadXLSX();
+          const arrayBuffer = await file.arrayBuffer();
+          const workbook = xlsx.read(arrayBuffer, { type: "array" });
+          const firstSheetName = workbook.SheetNames[0];
+          const csvContent = await convertExcelToCSV(workbook, firstSheetName);
+
+          onParametersChange({
+            source: file.name,
+            fileContent: csvContent,
+            fileType: "excel",
+            sheetName: firstSheetName,
+          });
+        } else {
+          // CSV 파일 처리
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const content = e.target?.result as string;
+            onParametersChange({ source: file.name, fileContent: content, fileType: "csv" });
+          };
+          reader.readAsText(file);
+        }
       } catch (error: any) {
         if (error.name !== "AbortError") fileInputRef.current?.click();
       }
@@ -1567,13 +1655,21 @@ const LoadDataParams: React.FC<{
     }
   };
 
+  const handleExcelInputApply = (csvContent: string) => {
+    onParametersChange({
+      source: "엑셀 직접 입력",
+      fileContent: csvContent,
+      fileType: "excel",
+    });
+  };
+
   return (
     <div>
       <input
         type="file"
         ref={fileInputRef}
         onChange={handleFileChange}
-        accept=".csv"
+        accept=".csv,.xlsx,.xls"
         className="hidden"
       />
       <label className="block text-xs text-gray-400 mb-1">Source</label>
@@ -1592,6 +1688,19 @@ const LoadDataParams: React.FC<{
           Browse...
         </button>
       </div>
+      {/* 파일 타입 표시 */}
+      {parameters.fileType === "excel" && parameters.sheetName && (
+        <div className="mb-2 text-xs text-gray-500">
+          Excel Sheet: {parameters.sheetName}
+        </div>
+      )}
+      {/* 엑셀 데이터 직접 입력 버튼 */}
+      <button
+        onClick={() => setShowExcelModal(true)}
+        className="mb-4 px-3 py-1.5 text-xs bg-gray-600 hover:bg-gray-500 rounded-md font-semibold"
+      >
+        엑셀 데이터 직접 입력
+      </button>
       <div className="mt-4">
         <h4 className="text-xs text-gray-500 uppercase font-bold mb-2">
           Examples
@@ -1609,6 +1718,12 @@ const LoadDataParams: React.FC<{
           ))}
         </div>
       </div>
+      {showExcelModal && (
+        <ExcelInputModal
+          onClose={() => setShowExcelModal(false)}
+          onApply={handleExcelInputApply}
+        />
+      )}
     </div>
   );
 };
@@ -2462,7 +2577,7 @@ const CalculateSurvivorsParams: React.FC<{
   allConnections,
   moduleId,
 }) => {
-  const { ageColumn, mortalityColumn, calculations } = parameters;
+  const { ageColumn, mortalityColumn, calculations, addFixedLx } = parameters;
   const [selectedRates, setSelectedRates] = useState<Record<string, string>>(
     {}
   );
@@ -2486,7 +2601,13 @@ const CalculateSurvivorsParams: React.FC<{
     setSelectedRates((prevRates) => {
       const newRates: Record<string, string> = {};
       (calculations || []).forEach((calc: any) => {
-        newRates[calc.id] = prevRates[calc.id] || "";
+        // If decrementRates has "Male_Mortality", set it as selected rate
+        // This allows the tag to display the combobox value
+        if (calc.decrementRates && calc.decrementRates.includes("Male_Mortality")) {
+          newRates[calc.id] = "Male_Mortality";
+        } else {
+          newRates[calc.id] = prevRates[calc.id] || "";
+        }
       });
       return newRates;
     });
@@ -2556,6 +2677,26 @@ const CalculateSurvivorsParams: React.FC<{
 
   return (
     <>
+      {/* Checkbox for adding fixed lx column */}
+      <div className="mb-4">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={addFixedLx || false}
+            onChange={(e) =>
+              onParametersChange({
+                ...parameters,
+                addFixedLx: e.target.checked,
+              })
+            }
+            className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+          />
+          <span className="text-sm text-gray-300">
+            lx 추가: 경과기간 동안 100,000 고정
+          </span>
+        </label>
+      </div>
+
       <div className="grid grid-cols-2 gap-4 mb-4">
         <PropertySelect
           label="Age Column"
@@ -2618,21 +2759,31 @@ const CalculateSurvivorsParams: React.FC<{
                             Add decrement rates...
                           </p>
                         )}
-                        {(calc.decrementRates || []).map((rate: string) => (
-                          <div
-                            key={rate}
-                            className="flex items-center gap-1 bg-blue-600/50 text-blue-100 px-2 py-0.5 rounded text-xs h-fit"
-                          >
-                            <span>{rate}</span>
-                            <button
-                              onClick={() =>
-                                handleRemoveRateFromCalc(calc.id, rate)
-                              }
+                        {(calc.decrementRates || []).map((rate: string) => {
+                          // If there's a selected rate in combobox and it matches this rate, show the combobox value
+                          // Otherwise, if the rate is "Mortality" and combobox has "Male_Mortality", show "Male_Mortality"
+                          let displayValue = rate;
+                          if (selectedRates[calc.id] && selectedRates[calc.id] === rate) {
+                            displayValue = selectedRates[calc.id];
+                          } else if (rate === "Mortality" && selectedRates[calc.id] === "Male_Mortality") {
+                            displayValue = "Male_Mortality";
+                          }
+                          return (
+                            <div
+                              key={rate}
+                              className="flex items-center gap-1 bg-blue-600/50 text-blue-100 px-2 py-0.5 rounded text-xs h-fit"
                             >
-                              <XMarkIcon className="w-3 h-3" />
-                            </button>
-                          </div>
-                        ))}
+                              <span>{displayValue}</span>
+                              <button
+                                onClick={() =>
+                                  handleRemoveRateFromCalc(calc.id, rate)
+                                }
+                              >
+                                <XMarkIcon className="w-3 h-3" />
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
 
                       <div className="flex gap-2 flex-shrink-0">
