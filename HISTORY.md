@@ -34,12 +34,12 @@
 
 # 백업 및 복구
 git stash push -u -m "백업"
-git reset --hard 91fa539
+git reset --hard 3b03290
 
 # 또는 직접 복구
-git reset --hard 91fa539
+git reset --hard 3b03290
 
-커밋 해시: 91fa539
+커밋 해시: 3b03290
 
 ---
 
