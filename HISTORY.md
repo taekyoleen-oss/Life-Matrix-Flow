@@ -4,6 +4,45 @@
 
 ---
 
+## [2026-01-09 21:18:26] - shared 폴더 의존성 제거 및 파일 경로 수정
+
+변경 사항:
+
+- shared 폴더에 대한 모든 의존성 제거
+- utils/fileOperations.ts 파일 생성 (savePipeline, loadPipeline 함수 직접 구현)
+- utils/samples.ts 재작성 (shared 폴더 의존성 제거, 모든 함수 직접 구현)
+- components/icons.tsx 재작성 (shared 폴더 의존성 제거, 모든 아이콘 컴포넌트 직접 구현)
+- ArrowDownTrayIcon 추가
+- App.tsx의 import 경로 수정 (../shared/utils/fileOperations -> ./utils/fileOperations)
+- File System Access API를 사용한 파일 저장/로드 기능 구현
+- Heroicons 스타일의 SVG 아이콘 컴포넌트 직접 구현
+
+영향받은 파일:
+
+- utils/fileOperations.ts (신규 생성)
+- utils/samples.ts (재작성)
+- components/icons.tsx (재작성)
+- App.tsx (import 경로 수정)
+
+이유:
+
+- 파일 이름과 위치가 변경되어 shared 폴더가 더 이상 존재하지 않음
+- 프로젝트 구조 변경에 따른 import 경로 수정 필요
+- 모든 의존성을 프로젝트 내부로 이동하여 독립성 확보
+
+복구 방법:
+
+# 백업 및 복구
+git stash push -u -m "백업"
+git reset --hard 91fa539
+
+# 또는 직접 복구
+git reset --hard 91fa539
+
+커밋 해시: 91fa539
+
+---
+
 ## [2025-12-12 15:25:48] - Samples와 My Work 기능 분리 및 개선
 
 변경 사항:

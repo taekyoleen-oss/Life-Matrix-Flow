@@ -70,7 +70,7 @@ import {
   savePersonalWork,
   SampleData,
 } from "./utils/samples";
-import { savePipeline, loadPipeline } from "../shared/utils/fileOperations";
+import { savePipeline, loadPipeline } from "./utils/fileOperations";
 
 const getModuleDefault = (type: ModuleType) => {
   const defaultData = DEFAULT_MODULES.find((m) => m.type === type)!;
