@@ -4093,6 +4093,8 @@ export const ParameterInputModal: React.FC<ParameterInputModalProps> = ({
     if (onRunModule) {
       setIsRunning(true);
       try {
+        // Run 실행 전에 자동으로 저장
+        handleSave();
         await onRunModule(module.id);
         // Close modal after successful execution
         handleClose();
