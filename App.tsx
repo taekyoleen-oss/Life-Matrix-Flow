@@ -71,17 +71,25 @@ import {
   SampleData,
 } from "./utils/samples";
 import { savePipeline, loadPipeline } from "./utils/fileOperations";
+import { loadModuleDefault } from "./utils/moduleDefaults";
 
 const getModuleDefault = (type: ModuleType) => {
   const defaultData = DEFAULT_MODULES.find((m) => m.type === type)!;
   const moduleInfo = TOOLBOX_MODULES.find((m) => m.type === type)!;
+  
+  // 저장된 사용자 정의 기본값이 있으면 우선 사용, 없으면 기본값 사용
+  const savedDefault = loadModuleDefault(type);
+  const parameters = savedDefault 
+    ? JSON.parse(JSON.stringify(savedDefault))
+    : JSON.parse(JSON.stringify(defaultData.parameters));
+  
   return {
     type,
     name: moduleInfo.name,
     status: ModuleStatus.Pending,
-    parameters: { ...defaultData.parameters },
-    inputs: [...defaultData.inputs],
-    outputs: [...defaultData.outputs],
+    parameters, // Deep copy
+    inputs: JSON.parse(JSON.stringify(defaultData.inputs)), // Deep copy
+    outputs: JSON.parse(JSON.stringify(defaultData.outputs)), // Deep copy
   };
 };
 
@@ -1055,6 +1063,12 @@ const App: React.FC = () => {
       const defaultData = DEFAULT_MODULES.find((m) => m.type === type);
       if (!defaultData) return;
 
+      // 저장된 사용자 정의 기본값이 있으면 우선 사용, 없으면 기본값 사용
+      const savedDefault = loadModuleDefault(type);
+      const defaultParameters = savedDefault 
+        ? JSON.parse(JSON.stringify(savedDefault))
+        : JSON.parse(JSON.stringify(defaultData.parameters));
+
       const moduleInfo = TOOLBOX_MODULES.find((m) => m.type === type);
       const baseName = moduleInfo ? moduleInfo.name : type;
       const count = modules.filter((m) => m.type === type).length + 1;
@@ -1136,9 +1150,9 @@ const App: React.FC = () => {
         type,
         position: finalPosition,
         status: ModuleStatus.Pending,
-        parameters: { ...defaultData.parameters },
-        inputs: [...defaultData.inputs],
-        outputs: [...defaultData.outputs],
+        parameters: defaultParameters, // 저장된 기본값 또는 기본값 사용
+        inputs: JSON.parse(JSON.stringify(defaultData.inputs)), // Deep copy
+        outputs: JSON.parse(JSON.stringify(defaultData.outputs)), // Deep copy
       };
 
       setModules((prev) => [...prev, newModule]);

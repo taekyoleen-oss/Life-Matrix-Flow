@@ -253,6 +253,13 @@ export const GroupBoxIcon: React.FC<IconProps> = ({ className = '', width = 24, 
 );
 
 // Arrow Down Tray Icon (Download Icon)
+// Bookmark Icon (for save)
+export const BookmarkIcon: React.FC<IconProps> = ({ className = '', width = 24, height = 24 }) => (
+  <svg className={className} width={width} height={height} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />
+  </svg>
+);
+
 export const ArrowDownTrayIcon: React.FC<IconProps> = ({ className = '', width = 24, height = 24 }) => (
   <svg className={className} width={width} height={height} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />

@@ -16,7 +16,8 @@ import {
   NetPremiumOutput,
   GrossPremiumOutput,
 } from "../types";
-import { XCircleIcon, XMarkIcon, PlayIcon } from "./icons";
+import { XCircleIcon, XMarkIcon, PlayIcon, BookmarkIcon } from "./icons";
+import { saveModuleDefault, loadModuleDefault } from "../utils/moduleDefaults";
 import { SAMPLE_DATA } from "../sampleData";
 import { ExcelInputModal } from "./ExcelInputModal";
 
@@ -3728,7 +3729,7 @@ const PremiumComponentParams: React.FC<{
 
       <div>
         <h4 className="text-xs text-gray-400 font-bold mb-2">
-          SUMX Components (Benefit Factors)
+          MMX Components (Benefit Factors)
         </h4>
         <div className="space-y-2">
           {sumxCalculations.map((calc: any) => (
@@ -3764,7 +3765,7 @@ const PremiumComponentParams: React.FC<{
             onClick={() => handleAdd("sumxCalculations")}
             className="w-full px-3 py-1.5 text-xs bg-blue-600/80 hover:bg-blue-600 rounded-md"
           >
-            Add SUMX
+            Add MMX
           </button>
         </div>
       </div>
@@ -4058,6 +4059,31 @@ export const ParameterInputModal: React.FC<ParameterInputModalProps> = ({
   onRunModule,
 }) => {
   const [isRunning, setIsRunning] = React.useState(false);
+  const [showCloseConfirm, setShowCloseConfirm] = React.useState(false);
+  const [hasAppliedSavedDefaults, setHasAppliedSavedDefaults] = React.useState(false);
+  const initialParametersRef = React.useRef<Record<string, any>>(
+    JSON.parse(JSON.stringify(module.parameters))
+  );
+
+  // 초기값과 현재값을 비교하여 실제 변경사항이 있는지 확인하는 함수
+  const hasChanges = React.useCallback(() => {
+    const current = JSON.stringify(module.parameters);
+    const initial = JSON.stringify(initialParametersRef.current);
+    return current !== initial;
+  }, [module.parameters]);
+
+  // 모듈이 열릴 때 저장된 기본값이 있으면 적용
+  React.useEffect(() => {
+    const savedDefault = loadModuleDefault(module.type);
+    if (savedDefault) {
+      // 저장된 기본값을 현재 모듈에 적용
+      updateModuleParameters(module.id, savedDefault);
+      initialParametersRef.current = JSON.parse(JSON.stringify(savedDefault));
+    } else {
+      initialParametersRef.current = JSON.parse(JSON.stringify(module.parameters));
+    }
+    setHasAppliedSavedDefaults(true);
+  }, [module.id, module.type, updateModuleParameters]);
 
   const handleParametersChange = (newParams: Record<string, any>) => {
     updateModuleParameters(module.id, newParams);
@@ -4069,11 +4095,34 @@ export const ParameterInputModal: React.FC<ParameterInputModalProps> = ({
       try {
         await onRunModule(module.id);
         // Close modal after successful execution
-        onClose();
+        handleClose();
       } finally {
         setIsRunning(false);
       }
     }
+  };
+
+  const handleSave = () => {
+    // 현재 모듈의 parameters를 해당 모듈 타입의 기본값으로 저장
+    saveModuleDefault(module.type, module.parameters);
+    initialParametersRef.current = JSON.parse(JSON.stringify(module.parameters));
+  };
+
+  const handleClose = () => {
+    // 실제 변경사항이 있는지 확인
+    if (hasChanges()) {
+      setShowCloseConfirm(true);
+    } else {
+      onClose();
+    }
+  };
+
+  const handleConfirmClose = (save: boolean) => {
+    if (save) {
+      handleSave();
+    }
+    setShowCloseConfirm(false);
+    onClose();
   };
 
   const renderContent = () => {
@@ -4108,7 +4157,7 @@ export const ParameterInputModal: React.FC<ParameterInputModalProps> = ({
   return (
     <div
       className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div
         className={`bg-gray-800 text-white rounded-lg shadow-xl w-full ${getModalWidthClass()} max-h-[90vh] flex flex-col`}
@@ -4117,6 +4166,14 @@ export const ParameterInputModal: React.FC<ParameterInputModalProps> = ({
         <header className="flex items-center justify-between p-4 border-b border-gray-700 flex-shrink-0">
           <h2 className="text-xs font-bold">Edit Parameters: {module.name}</h2>
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleSave}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 rounded-md font-semibold text-white transition-colors"
+              title="Save as default for this module type"
+            >
+              <BookmarkIcon className="h-3 w-3" />
+              저장
+            </button>
             {onRunModule && (
               <button
                 onClick={handleRun}
@@ -4129,7 +4186,7 @@ export const ParameterInputModal: React.FC<ParameterInputModalProps> = ({
               </button>
             )}
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="text-gray-400 hover:text-white"
             >
               <XCircleIcon className="w-5 h-5" />
@@ -4140,6 +4197,41 @@ export const ParameterInputModal: React.FC<ParameterInputModalProps> = ({
           {renderContent()}
         </main>
       </div>
+
+      {/* Close Confirmation Dialog */}
+      {showCloseConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[60]">
+          <div
+            className="bg-gray-800 text-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-bold mb-4">변경사항 저장 확인</h3>
+            <p className="text-sm text-gray-300 mb-6">
+              입력값이 변경되었습니다. 저장하지 않고 닫으시겠습니까?
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => handleConfirmClose(false)}
+                className="px-4 py-2 text-sm bg-gray-600 hover:bg-gray-500 rounded-md font-semibold text-white transition-colors"
+              >
+                저장 안 함
+              </button>
+              <button
+                onClick={() => handleConfirmClose(true)}
+                className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 rounded-md font-semibold text-white transition-colors"
+              >
+                저장 후 닫기
+              </button>
+              <button
+                onClick={() => setShowCloseConfirm(false)}
+                className="px-4 py-2 text-sm bg-gray-700 hover:bg-gray-600 rounded-md font-semibold text-white transition-colors"
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

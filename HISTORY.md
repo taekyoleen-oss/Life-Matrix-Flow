@@ -4,6 +4,77 @@
 
 ---
 
+## [2026-01-XX] - 모듈 입력값 저장 기능 및 닫기 확인 다이얼로그 추가
+
+변경 사항:
+
+- 모듈 타입별 사용자 정의 기본값을 localStorage에 저장하는 기능 추가
+- ParameterInputModal에 "저장" 버튼 추가 (우측 상단)
+- 모듈 입력값 변경사항 추적 기능 추가 (isDirty 상태)
+- 닫기 버튼 클릭 시 저장 여부 확인 다이얼로그 추가
+- createModule에서 저장된 기본값을 우선 사용하도록 수정
+- ParameterInputModal이 열릴 때 저장된 기본값이 있으면 자동으로 적용하도록 수정
+- 저장된 기본값이 없으면 기존 DEFAULT_MODULES의 기본값 사용
+- BookmarkIcon 아이콘 추가 (저장 버튼용)
+
+영향받은 파일:
+
+- utils/moduleDefaults.ts (신규 생성)
+- components/ParameterInputModal.tsx (저장 기능, 변경사항 추적, 닫기 확인 다이얼로그 추가)
+- components/icons.tsx (BookmarkIcon 추가)
+- App.tsx (저장된 기본값 우선 사용 로직 추가)
+
+이유:
+
+- 모듈을 신규로 생성할 때마다 동일한 입력값을 설정해야 하는 불편함 해소
+- 사용자가 자주 사용하는 입력값을 저장하여 재사용 가능하도록 개선
+- 실수로 변경사항을 잃어버리는 것을 방지하기 위한 닫기 확인 기능 추가
+
+복구 방법:
+
+# 백업 및 복구
+git stash push -u -m "백업"
+git reset --hard <커밋해시>
+
+# 또는 직접 복구
+git reset --hard <커밋해시>
+
+커밋 해시: (커밋 후 업데이트 예정)
+
+---
+
+## [2026-01-XX] - 모듈 생성 시 입력값 깊은 복사(Deep Copy) 적용
+
+변경 사항:
+
+- `createModule` 함수에서 모듈 생성 시 parameters, inputs, outputs를 얕은 복사(shallow copy)에서 깊은 복사(deep copy)로 변경
+- `getModuleDefault` 함수에서도 동일하게 깊은 복사 적용
+- `JSON.parse(JSON.stringify())`를 사용하여 중첩된 객체와 배열도 완전히 복사되도록 수정
+- 기존 모듈의 입력값이 새 모듈 생성 시 참조로 공유되던 문제 해결
+
+영향받은 파일:
+
+- App.tsx (createModule, getModuleDefault 함수 수정)
+
+이유:
+
+- 모듈을 신규로 생성할 때 기존 모듈의 parameters에 포함된 배열(calculations, basicValues, selections 등)이 참조로 공유되어, 한 모듈의 값을 수정하면 다른 모듈의 값도 함께 변경되는 문제 발생
+- 얕은 복사(`{ ...defaultData.parameters }`, `[...defaultData.inputs]`)로는 중첩된 객체나 배열이 참조로 복사됨
+- 깊은 복사를 통해 각 모듈이 독립적인 데이터를 가지도록 수정
+
+복구 방법:
+
+# 백업 및 복구
+git stash push -u -m "백업"
+git reset --hard <커밋해시>
+
+# 또는 직접 복구
+git reset --hard <커밋해시>
+
+커밋 해시: (커밋 후 업데이트 예정)
+
+---
+
 ## [2026-01-09 21:18:26] - shared 폴더 의존성 제거 및 파일 경로 수정
 
 변경 사항:
