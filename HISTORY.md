@@ -4,6 +4,34 @@
 
 ---
 
+## [2026-01-11] - Samples에서 Whole Life 샘플만 유지
+
+변경 사항:
+
+- public/samples/samples.json에서 "Whole Life" 샘플만 유지하고 나머지 샘플 삭제
+- samples/Whole Life.lifx 파일을 "Whole Life" 이름으로 Samples 예제에 추가
+
+영향받은 파일:
+
+- public/samples/samples.json (다른 샘플 삭제, Whole Life만 유지)
+
+이유:
+
+- Samples 메뉴에서 Whole Life 샘플만 제공하도록 정리
+
+복구 방법:
+
+# 백업 및 복구
+git stash push -u -m "백업"
+git reset --hard 4bf486b
+
+# 또는 직접 복구
+git reset --hard 4bf486b
+
+커밋 해시: 4bf486b
+
+---
+
 ## [2026-01-11] - Whole Life.lifx 샘플 업데이트 및 Save 기능 개선
 
 변경 사항:
