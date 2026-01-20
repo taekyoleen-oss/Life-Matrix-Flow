@@ -4,6 +4,57 @@
 
 ---
 
+## [2026-01-11] - Whole Life.lifx 샘플 업데이트 및 Save 기능 개선
+
+변경 사항:
+
+- samples/Whole Life.lifx 파일을 public/samples/samples.json의 "종신보험" 샘플로 업데이트
+- Save 기능 개선: File System Access API 실패 시 자동으로 다운로드 방식으로 fallback
+- Save 기능 개선: 파일명에 productName 사용 (기존: pipeline.lifx, 개선: 종신보험.lifx)
+- Save 기능 개선: 파일명 특수문자 처리 (<>:"/\|?*를 _로 치환)
+- Save 기능 개선: 에러 발생 시 사용자에게 alert 표시
+- Additional Variables 모듈: 변경 없이 닫을 때 원래 상태 복원 기능 추가
+- Additional Variables 모듈: Var Name 자동 생성 기능 추가 (Column + Row Index Rule)
+- Light Mode 추가: Dark Mode는 유지하고 Light Mode 추가
+- 글자 크게/작게 아이콘을 ML Auto Flow와 동일한 아이콘으로 변경 (ArrowsPointingOutIcon, ArrowsPointingInIcon)
+- NNX MMX Calculator: Nx_ 1개당 4가지 NNX 버전 자동 생성 (Year, Half, Quarter, Month)
+- NNX MMX Calculator: DX 컬럼 선택 콤보박스 추가
+- Additional Variables: Row Index Rule에 "Entry Age" 옵션 추가
+
+영향받은 파일:
+
+- public/samples/samples.json (종신보험 샘플 업데이트)
+- utils/fileOperations.ts (Save 기능 개선)
+- utils/samples.ts (파일명 안전성 개선)
+- App.tsx (Additional Variables 상태 복원, 초기 로드 로직)
+- components/ParameterInputModal.tsx (Var Name 자동 생성, Entry Age 옵션 추가)
+- components/icons.tsx (글자 크게/작게 아이콘 변경)
+- contexts/ThemeContext.tsx (신규 생성 - Light Mode 지원)
+- index.tsx (ThemeProvider 추가)
+- index.html (Light Mode CSS 추가)
+- components/Canvas.tsx (Light Mode 스타일 추가)
+- components/ComponentRenderer.tsx (Light Mode 스타일 추가)
+
+이유:
+
+- Whole Life.lifx 파일을 초기화면으로 설정하여 배포 시 자동으로 표시
+- Save 기능의 안정성 향상 및 사용자 경험 개선
+- Additional Variables 모듈 사용성 개선
+- Light Mode 지원으로 사용자 선택권 확대
+
+복구 방법:
+
+# 백업 및 복구
+git stash push -u -m "백업"
+git reset --hard 67820d9
+
+# 또는 직접 복구
+git reset --hard 67820d9
+
+커밋 해시: 67820d9
+
+---
+
 ## [2026-01-XX] - 모듈 입력값 저장 기능 및 닫기 확인 다이얼로그 추가
 
 변경 사항:
