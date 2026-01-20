@@ -1,6 +1,6 @@
 [
   {
-    "name": "종신보험",
+    "name": "Whole Life",
     "modules": [
       {
         "id": "load-1",
@@ -16059,10 +16059,5 @@
         }
       }
     ]
-  },
-  {
-    "modules": null,
-    "name": "醫낆떊蹂댄뿕",
-    "connections": null
   }
 ]
