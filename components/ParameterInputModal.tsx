@@ -32,7 +32,7 @@ const loadXLSX = async () => {
 
 interface ParameterInputModalProps {
   module: CanvasModule;
-  onClose: () => void;
+  onClose: (shouldRestore?: boolean) => void;
   updateModuleParameters: (id: string, newParams: Record<string, any>) => void;
   modules: CanvasModule[];
   connections: Connection[];
@@ -1296,13 +1296,18 @@ const AdditionalNameParams: React.FC<{
   };
 
   const handleAddDefinition = () => {
+    const defaultColumn = columns.length > 0 ? columns[0] : "";
+    const defaultRowType = "entryAge";
+    const rowTypeLabel = getRowTypeLabel(defaultRowType, 0);
+    const defaultName = defaultColumn ? `${defaultColumn}(${rowTypeLabel})` : "";
+    
     const newDef = {
       id: `def-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      name: "",
+      name: defaultName,
       type: "lookup", // 'static' or 'lookup'
       staticValue: 0,
-      column: columns.length > 0 ? columns[0] : "",
-      rowType: "policyTerm", // 'policyTerm', 'paymentTerm', 'entryAgePlus', 'custom'
+      column: defaultColumn,
+      rowType: defaultRowType, // 'entryAge', 'policyTerm', 'paymentTerm', 'entryAgePlus', 'custom'
       customValue: 0,
     };
     updateDefinitions([...definitions, newDef]);
@@ -1312,10 +1317,44 @@ const AdditionalNameParams: React.FC<{
     updateDefinitions(definitions.filter((d: any) => d.id !== id));
   };
 
+  // Row Index Rule의 라벨을 가져오는 헬퍼 함수
+  const getRowTypeLabel = (rowType: string, customValue?: number): string => {
+    switch (rowType) {
+      case "entryAge":
+        return "Entry Age";
+      case "policyTerm":
+        return "Policy Term";
+      case "paymentTerm":
+        return "Payment Term";
+      case "entryAgePlus":
+        return `Entry Age + ${customValue || 0}`;
+      case "custom":
+        return `Row ${customValue || 0}`;
+      default:
+        return rowType;
+    }
+  };
+
   const handleUpdateDefinition = (id: string, field: string, value: any) => {
-    const newDefinitions = definitions.map((d: any) =>
-      d.id === id ? { ...d, [field]: value } : d
-    );
+    const newDefinitions = definitions.map((d: any) => {
+      if (d.id === id) {
+        const updated = { ...d, [field]: value };
+        
+        // Column이나 Row Index Rule이 변경되면 Var Name 자동 업데이트
+        if (field === "column" || field === "rowType" || field === "customValue") {
+          if (updated.type === "lookup" && updated.column) {
+            const rowTypeLabel = getRowTypeLabel(
+              updated.rowType || "entryAge",
+              updated.customValue
+            );
+            updated.name = `${updated.column}(${rowTypeLabel})`;
+          }
+        }
+        
+        return updated;
+      }
+      return d;
+    });
     updateDefinitions(newDefinitions);
   };
 
@@ -1472,18 +1511,15 @@ const AdditionalNameParams: React.FC<{
                   <PropertySelect
                     label="Column"
                     value={def.column}
-                    onChange={(v) =>
-                      handleUpdateDefinition(def.id, "column", v)
-                    }
+                    onChange={(v) => handleUpdateDefinition(def.id, "column", v)}
                     options={columns}
                   />
                   <PropertySelect
                     label="Row Index Rule"
                     value={def.rowType}
-                    onChange={(v) =>
-                      handleUpdateDefinition(def.id, "rowType", v)
-                    }
+                    onChange={(v) => handleUpdateDefinition(def.id, "rowType", v)}
                     options={[
+                      { label: "Entry Age", value: "entryAge" },
                       { label: "Policy Term (End)", value: "policyTerm" },
                       { label: "Payment Term (End)", value: "paymentTerm" },
                       { label: "Entry Age + X years", value: "entryAgePlus" },
@@ -1501,9 +1537,7 @@ const AdditionalNameParams: React.FC<{
                         }
                         type="number"
                         value={def.customValue}
-                        onChange={(v) =>
-                          handleUpdateDefinition(def.id, "customValue", v)
-                        }
+                        onChange={(v) => handleUpdateDefinition(def.id, "customValue", v)}
                       />
                     </div>
                   )}
@@ -3574,6 +3608,13 @@ const PremiumComponentParams: React.FC<{
         .map((c) => c.name) || [],
     [dataSource]
   );
+  const dxColumns = useMemo(
+    () =>
+      dataSource?.columns
+        .filter((c) => c.name.startsWith("Dx_"))
+        .map((c) => c.name) || [],
+    [dataSource]
+  );
   const mxColumns = useMemo(
     () =>
       dataSource?.columns
@@ -3597,6 +3638,7 @@ const PremiumComponentParams: React.FC<{
       const newCalcs = nxColumns.map((col) => ({
         id: `nnx-auto-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         nxColumn: col,
+        dxColumn: "", // DX column will be selected by user
       }));
       updateCalculations("nnxCalculations", newCalcs);
     }
@@ -3650,7 +3692,7 @@ const PremiumComponentParams: React.FC<{
     const newCalc = {
       id: `${field === "nnxCalculations" ? "nnx" : "sumx"}-calc-${Date.now()}`,
       ...(field === "nnxCalculations"
-        ? { nxColumn: "" }
+        ? { nxColumn: "", dxColumn: "" }
         : { mxColumn: "", amount: 0 }),
     };
     updateCalculations(field, [
@@ -3695,27 +3737,50 @@ const PremiumComponentParams: React.FC<{
         <h4 className="text-xs text-gray-400 font-bold mb-2">
           NNX Components (Annuity Factors)
         </h4>
+        <p className="text-xs text-gray-500 mb-2">
+          Each Nx selection will automatically generate 4 NNX versions: Year, Half, Quarter, Month
+        </p>
         <div className="space-y-2">
           {nnxCalculations.map((calc: any) => (
             <div
               key={calc.id}
-              className="bg-gray-900/50 p-2 rounded-md border border-gray-600 flex items-center gap-2"
+              className="bg-gray-900/50 p-2 rounded-md border border-gray-600 space-y-2"
             >
-              <PropertySelect
-                label=""
-                value={calc.nxColumn}
-                onChange={(v) =>
-                  handleUpdate("nnxCalculations", calc.id, { nxColumn: v })
-                }
-                options={nxColumns}
-                placeholder="Select Nx"
-              />
-              <button
-                onClick={() => handleRemove("nnxCalculations", calc.id)}
-                className="mt-5 text-gray-500 hover:text-white"
-              >
-                <XMarkIcon className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <PropertySelect
+                    label="Nx Column"
+                    value={calc.nxColumn}
+                    onChange={(v) =>
+                      handleUpdate("nnxCalculations", calc.id, { nxColumn: v })
+                    }
+                    options={nxColumns}
+                    placeholder="Select Nx"
+                  />
+                </div>
+                <div className="flex-1">
+                  <PropertySelect
+                    label="Dx Column (for Half/Quarter/Month)"
+                    value={calc.dxColumn || ""}
+                    onChange={(v) =>
+                      handleUpdate("nnxCalculations", calc.id, { dxColumn: v })
+                    }
+                    options={dxColumns}
+                    placeholder="Select Dx"
+                  />
+                </div>
+                <button
+                  onClick={() => handleRemove("nnxCalculations", calc.id)}
+                  className="mt-5 text-gray-500 hover:text-white"
+                >
+                  <XMarkIcon className="w-4 h-4" />
+                </button>
+              </div>
+              {calc.nxColumn && (
+                <div className="text-[10px] text-gray-500 pl-1">
+                  Will generate: NNX(Year), NNX(Half), NNX(Quarter), NNX(Month)
+                </div>
+              )}
             </div>
           ))}
           <button
@@ -4064,6 +4129,11 @@ export const ParameterInputModal: React.FC<ParameterInputModalProps> = ({
   const initialParametersRef = React.useRef<Record<string, any>>(
     JSON.parse(JSON.stringify(module.parameters))
   );
+  // Additional Variables 모듈의 경우 원래 상태(status, outputData)를 저장
+  const initialModuleStateRef = React.useRef<{
+    status: any;
+    outputData: any;
+  } | null>(null);
 
   // 초기값과 현재값을 비교하여 실제 변경사항이 있는지 확인하는 함수
   const hasChanges = React.useCallback(() => {
@@ -4074,6 +4144,14 @@ export const ParameterInputModal: React.FC<ParameterInputModalProps> = ({
 
   // 모듈이 열릴 때 저장된 기본값이 있으면 적용
   React.useEffect(() => {
+    // Additional Variables 모듈의 경우 원래 상태 저장
+    if (module.type === ModuleType.AdditionalName) {
+      initialModuleStateRef.current = {
+        status: module.status,
+        outputData: module.outputData,
+      };
+    }
+    
     const savedDefault = loadModuleDefault(module.type);
     if (savedDefault) {
       // 저장된 기본값을 현재 모듈에 적용
@@ -4115,7 +4193,12 @@ export const ParameterInputModal: React.FC<ParameterInputModalProps> = ({
     if (hasChanges()) {
       setShowCloseConfirm(true);
     } else {
-      onClose();
+      // Additional Variables 모듈의 경우 변경이 없으면 복원 플래그와 함께 닫기
+      if (module.type === ModuleType.AdditionalName) {
+        onClose(true); // shouldRestore = true
+      } else {
+        onClose();
+      }
     }
   };
 
@@ -4124,6 +4207,7 @@ export const ParameterInputModal: React.FC<ParameterInputModalProps> = ({
       handleSave();
     }
     setShowCloseConfirm(false);
+    // 저장하거나 취소할 때는 복원하지 않음 (변경사항이 있었으므로)
     onClose();
   };
 

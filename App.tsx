@@ -45,8 +45,11 @@ import {
   FontSizeIncreaseIcon,
   FontSizeDecreaseIcon,
   XMarkIcon,
+  SunIcon,
+  MoonIcon,
 } from "./components/icons";
 import useHistoryState from "./hooks/useHistoryState";
+import { useTheme } from "./contexts/ThemeContext";
 import { DataPreviewModal } from "./components/DataPreviewModal";
 import { StatisticsPreviewModal } from "./components/StatisticsPreviewModal";
 import { SplitDataPreviewModal } from "./components/SplitDataPreviewModal";
@@ -187,6 +190,7 @@ const initialModules: CanvasModule[] = lifxModules.length > 0 ? lifxModules : [
         {
           id: "nnx-calc-initial",
           nxColumn: "Nx_Male_Mortality",
+          dxColumn: "", // Will be selected by user
         },
       ],
       sumxCalculations: [], // Let the component initialize based on loaded data
@@ -212,7 +216,7 @@ const initialModules: CanvasModule[] = lifxModules.length > 0 ? lifxModules : [
     ...getModuleDefault(ModuleType.NetPremiumCalculator),
     position: { x: 320, y: 220 },
     parameters: {
-      formula: "[SUMX] / [NNX_Male_Mortality]",
+      formula: "[SUMX] / [NNX_Male_Mortality(Year)]",
       variableName: "PP",
     },
   },
@@ -418,6 +422,7 @@ const saveInitialState = (
 };
 
 const App: React.FC = () => {
+  const { theme, toggleTheme } = useTheme();
   // Shared samples (from files, shared across all users)
   const [sharedSamples, setSharedSamples] = useState<SampleData[]>([]);
   
@@ -556,9 +561,54 @@ const App: React.FC = () => {
     []
   );
 
+  // Additional Variables 모듈의 원래 상태를 저장하기 위한 ref
+  const additionalVariablesInitialStateRef = useRef<Map<string, {
+    status: ModuleStatus;
+    outputData: any;
+    downstreamStates: Map<string, { status: ModuleStatus; outputData: any }>;
+  }>>(new Map());
+
   const handleEditParameters = useCallback((moduleId: string) => {
+    const module = modules.find((m) => m.id === moduleId);
+    // Additional Variables 모듈의 경우 원래 상태 저장
+    if (module && module.type === ModuleType.AdditionalName) {
+      // Downstream 모듈들의 상태도 저장
+      const adj: Record<string, string[]> = {};
+      connections.forEach((conn) => {
+        if (!adj[conn.from.moduleId]) adj[conn.from.moduleId] = [];
+        adj[conn.from.moduleId].push(conn.to.moduleId);
+      });
+      
+      const downstreamStates = new Map<string, { status: ModuleStatus; outputData: any }>();
+      const queue = [moduleId];
+      const visited = new Set<string>();
+      
+      while (queue.length > 0) {
+        const currentId = queue.shift()!;
+        if (visited.has(currentId)) continue;
+        visited.add(currentId);
+        
+        const downstream = adj[currentId] || [];
+        downstream.forEach((childId) => {
+          const childModule = modules.find((m) => m.id === childId);
+          if (childModule) {
+            downstreamStates.set(childId, {
+              status: childModule.status,
+              outputData: childModule.outputData,
+            });
+            queue.push(childId);
+          }
+        });
+      }
+      
+      additionalVariablesInitialStateRef.current.set(moduleId, {
+        status: module.status,
+        outputData: module.outputData,
+        downstreamStates,
+      });
+    }
     setEditingModuleId(moduleId);
-  }, []);
+  }, [modules, connections]);
 
   const editingModule = useMemo(() => {
     return modules.find((m) => m.id === editingModuleId) || null;
@@ -866,11 +916,13 @@ const App: React.FC = () => {
         },
         onError: (error) => {
           console.error("Failed to save pipeline:", error);
+          alert(`파일 저장 중 오류가 발생했습니다: ${error.message || error}`);
         },
       });
     } catch (error: any) {
       if (error.name !== "AbortError") {
         console.error("Failed to save pipeline:", error);
+        alert(`파일 저장 중 오류가 발생했습니다: ${error.message || error}`);
       }
     }
   }, [modules, connections, productName]);
@@ -2544,12 +2596,45 @@ const App: React.FC = () => {
 
             const nnxResults: Record<string, number> = {};
             for (const calc of nnxCalculations) {
-              const nx_start = Number(rows[0][calc.nxColumn]);
+              if (!calc.nxColumn) continue;
+              
+              const nx_start = Number(rows[0][calc.nxColumn]) || 0;
               const nx_end = rows[paymentTerm]
-                ? Number(rows[paymentTerm][calc.nxColumn])
+                ? Number(rows[paymentTerm][calc.nxColumn]) || 0
                 : 0;
-              const resultName = `NNX_${calc.nxColumn.replace("Nx_", "")}`;
-              nnxResults[resultName] = roundTo5(nx_start - nx_end);
+              
+              const baseName = calc.nxColumn.replace("Nx_", "");
+              
+              // NNX(Year): NX[Entry Age] - NX[Payment Term]
+              const nnxYear = nx_start - nx_end;
+              nnxResults[`NNX_${baseName}(Year)`] = roundTo5(nnxYear);
+              
+              // DX values for Half/Quarter/Month calculations
+              if (calc.dxColumn) {
+                const dx_start = Number(rows[0][calc.dxColumn]) || 0;
+                const dx_end = rows[paymentTerm]
+                  ? Number(rows[paymentTerm][calc.dxColumn]) || 0
+                  : 0;
+                const dx_diff = dx_start - dx_end;
+                
+                // NNX(Half): NX[Entry Age] - NX[Payment Term] - 1/4*(DX[Entry Age] - DX[Payment Term])
+                const nnxHalf = nnxYear - (1/4) * dx_diff;
+                nnxResults[`NNX_${baseName}(Half)`] = roundTo5(nnxHalf);
+                
+                // NNX(Quarter): NX[Entry Age] - NX[Payment Term] - 3/8*(DX[Entry Age] - DX[Payment Term])
+                const nnxQuarter = nnxYear - (3/8) * dx_diff;
+                nnxResults[`NNX_${baseName}(Quarter)`] = roundTo5(nnxQuarter);
+                
+                // NNX(Month): NX[Entry Age] - NX[Payment Term] - 11/24*(DX[Entry Age] - DX[Payment Term])
+                const nnxMonth = nnxYear - (11/24) * dx_diff;
+                nnxResults[`NNX_${baseName}(Month)`] = roundTo5(nnxMonth);
+              } else {
+                // If DX column is not selected, only Year version is available
+                // Set other versions to NaN or 0 to indicate they're not available
+                nnxResults[`NNX_${baseName}(Half)`] = NaN;
+                nnxResults[`NNX_${baseName}(Quarter)`] = NaN;
+                nnxResults[`NNX_${baseName}(Month)`] = NaN;
+              }
             }
 
             let mmxValue = 0;
@@ -2582,22 +2667,57 @@ const App: React.FC = () => {
             const enhancedRows = rows.map((row, rowIndex) => {
               const newRow = { ...row };
 
-              // Add NNX columns: SUM[NX(rowIndex) - NX(Payment Term)]
-              // NX(Payment Term) is fixed, NX(rowIndex) increases
+              // Add NNX columns: 4 versions for each Nx column
               // If rowIndex > paymentTerm, set to 0
               for (const calc of nnxCalculations) {
+                if (!calc.nxColumn) continue;
+                
                 const nxColumn = calc.nxColumn;
-                const nnxColumnName = `NNX_${nxColumn.replace("Nx_", "")}_Col`;
-
+                const baseName = nxColumn.replace("Nx_", "");
+                
                 if (rowIndex > paymentTerm) {
-                  newRow[nnxColumnName] = 0;
+                  // Set all versions to 0 if rowIndex > paymentTerm
+                  newRow[`NNX_${baseName}(Year)_Col`] = 0;
+                  newRow[`NNX_${baseName}(Half)_Col`] = 0;
+                  newRow[`NNX_${baseName}(Quarter)_Col`] = 0;
+                  newRow[`NNX_${baseName}(Month)_Col`] = 0;
                 } else {
                   const nx_current = Number(row[nxColumn]) || 0;
                   const nx_paymentTerm =
                     rows[paymentTerm] && rows[paymentTerm][nxColumn]
                       ? Number(rows[paymentTerm][nxColumn])
                       : 0;
-                  newRow[nnxColumnName] = roundTo5(nx_current - nx_paymentTerm);
+                  
+                  // NNX(Year): NX[rowIndex] - NX[Payment Term]
+                  const nnxYear = nx_current - nx_paymentTerm;
+                  newRow[`NNX_${baseName}(Year)_Col`] = roundTo5(nnxYear);
+                  
+                  // DX values for Half/Quarter/Month calculations
+                  if (calc.dxColumn) {
+                    const dx_current = Number(row[calc.dxColumn]) || 0;
+                    const dx_paymentTerm =
+                      rows[paymentTerm] && rows[paymentTerm][calc.dxColumn]
+                        ? Number(rows[paymentTerm][calc.dxColumn])
+                        : 0;
+                    const dx_diff = dx_current - dx_paymentTerm;
+                    
+                    // NNX(Half): NX[rowIndex] - NX[Payment Term] - 1/4*(DX[rowIndex] - DX[Payment Term])
+                    const nnxHalf = nnxYear - (1/4) * dx_diff;
+                    newRow[`NNX_${baseName}(Half)_Col`] = roundTo5(nnxHalf);
+                    
+                    // NNX(Quarter): NX[rowIndex] - NX[Payment Term] - 3/8*(DX[rowIndex] - DX[Payment Term])
+                    const nnxQuarter = nnxYear - (3/8) * dx_diff;
+                    newRow[`NNX_${baseName}(Quarter)_Col`] = roundTo5(nnxQuarter);
+                    
+                    // NNX(Month): NX[rowIndex] - NX[Payment Term] - 11/24*(DX[rowIndex] - DX[Payment Term])
+                    const nnxMonth = nnxYear - (11/24) * dx_diff;
+                    newRow[`NNX_${baseName}(Month)_Col`] = roundTo5(nnxMonth);
+                  } else {
+                    // If DX column is not selected, set other versions to NaN
+                    newRow[`NNX_${baseName}(Half)_Col`] = NaN;
+                    newRow[`NNX_${baseName}(Quarter)_Col`] = NaN;
+                    newRow[`NNX_${baseName}(Month)_Col`] = NaN;
+                  }
                 }
               }
 
@@ -2617,15 +2737,28 @@ const App: React.FC = () => {
 
             // Create enhanced columns list
             const enhancedColumns = [...inputData.columns];
-            // Add NNX columns
+            // Add NNX columns (4 versions for each Nx column)
             for (const calc of nnxCalculations) {
-              const nxColumn = calc.nxColumn;
-              const nnxColumnName = `NNX_${nxColumn.replace("Nx_", "")}_Col`;
-              if (!enhancedColumns.find((c) => c.name === nnxColumnName)) {
-                enhancedColumns.push({
-                  name: nnxColumnName,
-                  type: "number",
-                });
+              if (!calc.nxColumn) continue;
+              
+              const baseName = calc.nxColumn.replace("Nx_", "");
+              
+              // Add all 4 versions
+              const nnxVersions = [
+                `${baseName}(Year)`,
+                `${baseName}(Half)`,
+                `${baseName}(Quarter)`,
+                `${baseName}(Month)`,
+              ];
+              
+              for (const version of nnxVersions) {
+                const nnxColumnName = `NNX_${version}_Col`;
+                if (!enhancedColumns.find((c) => c.name === nnxColumnName)) {
+                  enhancedColumns.push({
+                    name: nnxColumnName,
+                    type: "number",
+                  });
+                }
               }
             }
             // Add single MMX column (sum of all Mx columns multiplied by Benefit Amount)
@@ -2855,7 +2988,10 @@ const App: React.FC = () => {
 
                 let rowIndex = 0;
 
-                if (def.rowType === "policyTerm") {
+                if (def.rowType === "entryAge") {
+                  // Entry Age is always row 0 (first row)
+                  rowIndex = 0;
+                } else if (def.rowType === "policyTerm") {
                   rowIndex = policyInfo.policyTerm;
                 } else if (def.rowType === "paymentTerm") {
                   rowIndex = policyInfo.paymentTerm;
@@ -4123,18 +4259,18 @@ const App: React.FC = () => {
   }, [selectedModuleIds, modules]);
 
   return (
-    <div className="bg-gray-900 text-white h-screen w-full flex flex-col overflow-hidden">
-      <header className="flex flex-col px-4 py-2 bg-gray-900 border-b border-gray-700 flex-shrink-0 z-20 gap-2">
+    <div className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white h-screen w-full flex flex-col overflow-hidden transition-colors duration-200">
+      <header className="flex flex-col px-4 py-2 bg-white dark:bg-gray-900 border-b border-gray-300 dark:border-gray-700 flex-shrink-0 z-20 gap-2">
         {/* 최상단: 제목과 모델 이름 */}
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-2">
             <LogoIcon className="h-6 w-6 text-blue-400 flex-shrink-0" />
-            <h1 className="text-xl font-bold text-blue-300 tracking-wide whitespace-nowrap">
+            <h1 className="text-xl font-bold text-blue-600 dark:text-blue-300 tracking-wide whitespace-nowrap">
               Life Matrix Flow
             </h1>
           </div>
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <span className="text-gray-600">|</span>
+            <span className="text-gray-400 dark:text-gray-600">|</span>
             {isEditingProductName ? (
               <input
                 value={productName}
@@ -4144,13 +4280,13 @@ const App: React.FC = () => {
                   if (e.key === "Enter" || e.key === "Escape")
                     setIsEditingProductName(false);
                 }}
-                className="bg-gray-800 text-lg font-semibold text-white px-2 py-1 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 w-full max-w-md"
+                className="bg-gray-100 dark:bg-gray-800 text-lg font-semibold text-gray-900 dark:text-white px-2 py-1 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 w-full max-w-md"
                 autoFocus
               />
             ) : (
               <h2
                 onClick={() => setIsEditingProductName(true)}
-                className="text-lg font-semibold text-gray-300 hover:bg-gray-700 px-2 py-1 rounded-md cursor-pointer truncate max-w-md"
+                className="text-lg font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 px-2 py-1 rounded-md cursor-pointer truncate max-w-md"
                 title="Click to edit product name"
               >
                 {productName}
@@ -4164,13 +4300,13 @@ const App: React.FC = () => {
           <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={() => setIsSidebarVisible((prev) => !prev)}
-              className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md transition-colors"
+              className="p-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-md transition-colors"
               title="Toggle Module Sidebar"
             >
               <Bars3Icon className="h-5 w-5" />
             </button>
 
-            <div className="h-5 border-l border-gray-700"></div>
+            <div className="h-5 border-l border-gray-300 dark:border-gray-700"></div>
 
             {/* Samples Button */}
             <div className="relative samples-menu-container">
@@ -4183,7 +4319,7 @@ const App: React.FC = () => {
                 className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md font-semibold transition-colors ${
                   isSamplesMenuOpen
                     ? "bg-purple-600 text-white"
-                    : "bg-gray-700 hover:bg-gray-600 text-gray-200"
+                    : "bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-200"
                 }`}
                 title="Shared Samples"
               >
@@ -4195,23 +4331,23 @@ const App: React.FC = () => {
                   className="absolute top-full left-0 mt-2 w-56 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 overflow-hidden"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div className="p-2 text-xs font-bold text-gray-500 uppercase border-b border-gray-700">
+                  <div className="p-2 text-xs font-bold text-gray-500 dark:text-gray-500 uppercase border-b border-gray-200 dark:border-gray-700">
                     Shared Models
                   </div>
                   <div className="max-h-64 overflow-y-auto">
                     {sharedSamples.length === 0 ? (
-                      <div className="px-4 py-2 text-sm text-gray-400 italic">
+                      <div className="px-4 py-2 text-sm text-gray-400 dark:text-gray-400 italic">
                         No shared samples
                       </div>
                     ) : (
                       sharedSamples.map((sample, idx) => (
                         <div
                           key={idx}
-                          className="flex items-center justify-between group border-b border-gray-700 last:border-0 hover:bg-gray-700 transition-colors"
+                          className="flex items-center justify-between group border-b border-gray-200 dark:border-gray-700 last:border-0 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                         >
                           <button
                             onClick={() => handleLoadSample(sample)}
-                            className="flex-1 text-left px-4 py-2 text-sm text-gray-200 hover:text-white transition-colors"
+                            className="flex-1 text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white transition-colors"
                           >
                             {sample.name}
                           </button>
@@ -4234,7 +4370,7 @@ const App: React.FC = () => {
                 className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md font-semibold transition-colors ${
                   isMyWorkMenuOpen
                     ? "bg-purple-600 text-white"
-                    : "bg-gray-700 hover:bg-gray-600 text-gray-200"
+                    : "bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-200"
                 }`}
                 title="My Personal Work"
               >
@@ -4249,7 +4385,7 @@ const App: React.FC = () => {
                   {/* Load from File button */}
                   <button
                     onClick={handleLoadPersonalWorkFromFile}
-                    className="w-full text-left px-4 py-2.5 text-sm font-semibold bg-green-600 hover:bg-green-500 text-white transition-colors border-b border-gray-700"
+                    className="w-full text-left px-4 py-2.5 text-sm font-semibold bg-green-600 hover:bg-green-500 text-white transition-colors border-b border-gray-200 dark:border-gray-700"
                   >
                     📂 Load from File
                   </button>
@@ -4257,7 +4393,7 @@ const App: React.FC = () => {
                   {/* Save Current Model button */}
                   <button
                     onClick={handleSaveToPersonalWork}
-                    className="w-full text-left px-4 py-2.5 text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-colors border-b border-gray-700"
+                    className="w-full text-left px-4 py-2.5 text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-colors border-b border-gray-200 dark:border-gray-700"
                   >
                     💾 Save Current Model
                   </button>
@@ -4265,28 +4401,28 @@ const App: React.FC = () => {
                   {/* Set as Initial Screen button */}
                   <button
                     onClick={handleSetAsInitial}
-                    className="w-full text-left px-4 py-2.5 text-sm font-semibold bg-yellow-600 hover:bg-yellow-500 text-white transition-colors border-b border-gray-700"
+                    className="w-full text-left px-4 py-2.5 text-sm font-semibold bg-yellow-600 hover:bg-yellow-500 text-white transition-colors border-b border-gray-200 dark:border-gray-700"
                   >
                     ⭐ Set as Initial Screen
                   </button>
 
-                  <div className="p-2 text-xs font-bold text-gray-500 uppercase border-b border-gray-700">
+                  <div className="p-2 text-xs font-bold text-gray-500 dark:text-gray-500 uppercase border-b border-gray-200 dark:border-gray-700">
                     My Saved Models
                   </div>
                   <div className="max-h-64 overflow-y-auto">
                     {personalWork.length === 0 ? (
-                      <div className="px-4 py-2 text-sm text-gray-400 italic">
+                      <div className="px-4 py-2 text-sm text-gray-400 dark:text-gray-400 italic">
                         No saved models
                       </div>
                     ) : (
                       personalWork.map((work, idx) => (
                         <div
                           key={idx}
-                          className="flex items-center justify-between group border-b border-gray-700 last:border-0 hover:bg-gray-700 transition-colors"
+                          className="flex items-center justify-between group border-b border-gray-200 dark:border-gray-700 last:border-0 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                         >
                           <button
                             onClick={() => handleLoadSample(work)}
-                            className="flex-1 text-left px-4 py-2 text-sm text-gray-200 hover:text-white transition-colors"
+                            className="flex-1 text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white transition-colors"
                           >
                             {work.name}
                           </button>
@@ -4295,7 +4431,7 @@ const App: React.FC = () => {
                               e.stopPropagation();
                               handleDeletePersonalWork(work.name, idx);
                             }}
-                            className="px-3 py-2 text-gray-400 hover:text-red-400 hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100"
+                            className="px-3 py-2 text-gray-400 dark:text-gray-400 hover:text-red-400 dark:hover:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100"
                             title={`Delete "${work.name}"`}
                           >
                             <XMarkIcon className="h-4 w-4" />
@@ -4310,10 +4446,24 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {/* 테마 전환 버튼 */}
+            <button
+              onClick={toggleTheme}
+              className="p-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-md transition-colors flex-shrink-0"
+              title={
+                theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"
+              }
+            >
+              {theme === "dark" ? (
+                <SunIcon className="h-5 w-5 text-yellow-400" />
+              ) : (
+                <MoonIcon className="h-5 w-5 text-gray-700" />
+              )}
+            </button>
             <button
               onClick={undo}
               disabled={!canUndo}
-              className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
+              className="p-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-md disabled:text-gray-400 dark:disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
               title="Undo (Ctrl+Z)"
             >
               <ArrowUturnLeftIcon className="h-5 w-5" />
@@ -4321,17 +4471,17 @@ const App: React.FC = () => {
             <button
               onClick={redo}
               disabled={!canRedo}
-              className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
+              className="p-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-md disabled:text-gray-400 dark:disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
               title="Redo (Ctrl+Y)"
             >
               <ArrowUturnRightIcon className="h-5 w-5" />
             </button>
 
-            <div className="h-5 border-l border-gray-700"></div>
+            <div className="h-5 border-l border-gray-300 dark:border-gray-700"></div>
 
             <button
               onClick={handleSetFolder}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded-md font-semibold transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-md font-semibold transition-colors"
               title="Set Save Folder"
             >
               <FolderOpenIcon className="h-4 w-4" />
@@ -4339,7 +4489,7 @@ const App: React.FC = () => {
             </button>
             <button
               onClick={handleLoadPipeline}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded-md font-semibold transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-md font-semibold transition-colors"
               title="Load Pipeline"
             >
               <FolderOpenIcon className="h-4 w-4" />
@@ -4348,10 +4498,10 @@ const App: React.FC = () => {
             <button
               onClick={handleSavePipeline}
               disabled={!isDirty}
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md font-semibold transition-colors ${
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md font-semibold transition-colors text-white dark:text-white ${
                 !isDirty
-                  ? "bg-gray-600 cursor-not-allowed opacity-50"
-                  : "bg-gray-700 hover:bg-gray-600"
+                  ? "bg-gray-400 dark:bg-gray-600 cursor-not-allowed opacity-50"
+                  : "bg-gray-300 dark:bg-gray-700 hover:bg-gray-400 dark:hover:bg-gray-600"
               }`}
               title="Save Pipeline"
             >
@@ -4372,7 +4522,7 @@ const App: React.FC = () => {
 
             <button
               onClick={() => setIsCodePanelVisible((prev) => !prev)}
-              className="p-1.5 text-gray-300 hover:bg-gray-700 rounded-md transition-colors flex-shrink-0"
+              className="p-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-md transition-colors flex-shrink-0"
               title="Toggle Code & Terminal Panel"
             >
               <CommandLineIcon className="h-5 w-5" />
@@ -4383,7 +4533,7 @@ const App: React.FC = () => {
 
       <div className="flex-grow min-h-0 flex flex-row">
         {isSidebarVisible && (
-          <div className="flex-shrink-0 bg-gray-800 border-r border-gray-700 z-10 p-2 relative w-64 overflow-y-auto scrollbar-hide">
+          <div className="flex-shrink-0 bg-gray-100 dark:bg-gray-800 border-r border-gray-300 dark:border-gray-700 z-10 p-2 relative w-64 overflow-y-auto scrollbar-hide">
             <div className="flex flex-col gap-1">
               {/* Pipeline Execution Button - Above Data Category */}
               <button
@@ -4420,7 +4570,7 @@ const App: React.FC = () => {
                     {!isShapeMenu && (
                       <button
                         onClick={toggleCategory}
-                        className="flex items-center justify-between text-sm font-semibold text-gray-400 hover:text-gray-300 whitespace-nowrap w-full text-left px-1 py-1 rounded transition-colors"
+                        className="flex items-center justify-between text-sm font-semibold text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300 whitespace-nowrap w-full text-left px-1 py-1 rounded transition-colors"
                       >
                         <span>{category.name}</span>
                         {isCollapsed ? (
@@ -4539,10 +4689,10 @@ const App: React.FC = () => {
                                       onDragStart={(e) =>
                                         handleDragStart(e, moduleInfo.type)
                                       }
-                                      className="p-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                                      className="p-1 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded transition-colors"
                                       title={moduleInfo.name}
                                     >
-                                      <moduleInfo.icon className="h-4 w-4 text-gray-300" />
+                                      <moduleInfo.icon className="h-4 w-4 text-gray-700 dark:text-gray-300" />
                                     </button>
                                     {/* Tooltip */}
                                     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-0.5 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity">
@@ -4555,17 +4705,17 @@ const App: React.FC = () => {
                             <div className="flex flex-row gap-1 items-center">
                               <button
                                 onClick={() => adjustFontSize(true)}
-                                className="p-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                                className="p-1 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded transition-colors"
                                 title="글자 크게"
                               >
-                                <FontSizeIncreaseIcon className="h-4 w-4 text-gray-300" />
+                                <FontSizeIncreaseIcon className="h-4 w-4 text-gray-700 dark:text-gray-300" />
                               </button>
                               <button
                                 onClick={() => adjustFontSize(false)}
-                                className="p-1 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                                className="p-1 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded transition-colors"
                                 title="글자 작게"
                               >
-                                <FontSizeDecreaseIcon className="h-4 w-4 text-gray-300" />
+                                <FontSizeDecreaseIcon className="h-4 w-4 text-gray-700 dark:text-gray-300" />
                               </button>
                             </div>
                           </>
@@ -4588,7 +4738,7 @@ const App: React.FC = () => {
                                 onDragStart={(e) =>
                                   handleDragStart(e, moduleInfo.type)
                                 }
-                                className="flex items-center gap-2 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 rounded-md font-semibold transition-colors whitespace-nowrap w-full text-left"
+                                className="flex items-center gap-2 px-3 py-1.5 text-xs bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-200 rounded-md font-semibold transition-colors whitespace-nowrap w-full text-left"
                                 title={moduleInfo.description}
                               >
                                 <moduleInfo.icon className="h-4 w-4 flex-shrink-0" />
@@ -4610,7 +4760,7 @@ const App: React.FC = () => {
         )}
         <main
           ref={canvasContainerRef}
-          className="flex-grow h-full canvas-bg relative overflow-hidden"
+          className={`flex-grow h-full ${theme === "dark" ? "canvas-bg" : "canvas-bg-light"} relative overflow-hidden`}
         >
           <Canvas
             modules={modules}
@@ -4700,7 +4850,39 @@ const App: React.FC = () => {
       {editingModule && (
         <ParameterInputModal
           module={editingModule}
-          onClose={() => setEditingModuleId(null)}
+          onClose={(shouldRestore?: boolean) => {
+            // Additional Variables 모듈의 경우 변경이 없으면 원래 상태로 복원
+            if (shouldRestore && editingModule && editingModule.type === ModuleType.AdditionalName) {
+              const initialState = additionalVariablesInitialStateRef.current.get(editingModule.id);
+              if (initialState) {
+                // 모듈의 원래 상태로 복원
+                setModules((prevModules) => {
+                  return prevModules.map((m) => {
+                    if (m.id === editingModule.id) {
+                      return {
+                        ...m,
+                        status: initialState.status,
+                        outputData: initialState.outputData,
+                      };
+                    }
+                    // Downstream 모듈들도 원래 상태로 복원
+                    const downstreamState = initialState.downstreamStates.get(m.id);
+                    if (downstreamState) {
+                      return {
+                        ...m,
+                        status: downstreamState.status,
+                        outputData: downstreamState.outputData,
+                      };
+                    }
+                    return m;
+                  });
+                });
+                // 복원 후 ref에서 제거
+                additionalVariablesInitialStateRef.current.delete(editingModule.id);
+              }
+            }
+            setEditingModuleId(null);
+          }}
           updateModuleParameters={updateModuleParameters}
           modules={modules}
           connections={connections}
@@ -4751,7 +4933,7 @@ const App: React.FC = () => {
             <h3 className="text-lg font-bold mb-4">
               {overwriteContext === 'shared' ? 'Overwrite Shared Sample?' : 'Overwrite Personal Work?'}
             </h3>
-            <p className="text-sm text-gray-300 mb-6">
+            <p className="text-sm text-gray-700 dark:text-gray-300 mb-6">
               {overwriteContext === 'shared' 
                 ? `A shared sample with the name "${pendingSample.name}" already exists. Do you want to overwrite it?`
                 : `Personal work with the name "${pendingSample.name}" already exists. Do you want to overwrite it?`}
@@ -4759,7 +4941,7 @@ const App: React.FC = () => {
             <div className="flex justify-end gap-3">
               <button
                 onClick={handleCancelOverwrite}
-                className="px-4 py-2 text-sm bg-gray-700 hover:bg-gray-600 rounded-md font-semibold transition-colors"
+                className="px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-md font-semibold transition-colors"
               >
                 Cancel
               </button>

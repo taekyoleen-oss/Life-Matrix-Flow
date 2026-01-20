@@ -30,19 +30,29 @@ export async function loadSharedSamples(path: string = '/samples/samples.json'):
  */
 export function saveSampleToFile(sample: SampleData, extension: string = '.json'): void {
   try {
+    // Sanitize filename: remove or replace invalid characters
+    const sanitizedName = sample.name
+      .replace(/[<>:"/\\|?*]/g, '_') // Replace invalid filename characters
+      .replace(/\s+/g, '_') // Replace spaces with underscores
+      .trim();
+    
+    const fileName = sanitizedName || 'sample';
+    
     const blob = new Blob([JSON.stringify(sample, null, 2)], {
       type: 'application/json',
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${sample.name}${extension}`;
+    a.download = `${fileName}${extension}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   } catch (error) {
     console.error('Error saving sample to file:', error);
+    // Show user-friendly error message
+    alert('파일 저장 중 오류가 발생했습니다. 콘솔을 확인하세요.');
   }
 }
 

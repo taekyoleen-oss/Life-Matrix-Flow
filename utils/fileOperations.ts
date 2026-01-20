@@ -28,38 +28,81 @@ export async function savePipeline(
   try {
     if (!("showSaveFilePicker" in window)) {
       // Fallback for browsers that don't support File System Access API
+      // Use productName if available in state, otherwise use default name
+      const fileName = state.productName 
+        ? `${state.productName}${options.extension}`
+        : `pipeline${options.extension}`;
+      
       const blob = new Blob([JSON.stringify(state, null, 2)], {
         type: "application/json",
       });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `pipeline${options.extension}`;
+      a.download = fileName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      options.onSuccess?.(`pipeline${options.extension}`);
+      options.onSuccess?.(fileName);
       return;
     }
 
-    const fileHandle = await (window as any).showSaveFilePicker({
-      suggestedName: `pipeline${options.extension}`,
-      types: [
-        {
-          description: options.description,
-          accept: {
-            "application/json": [options.extension],
+    // Use productName if available in state, otherwise use default name
+    const fileName = state.productName 
+      ? `${state.productName}${options.extension}`
+      : `pipeline${options.extension}`;
+    
+    try {
+      const fileHandle = await (window as any).showSaveFilePicker({
+        suggestedName: fileName,
+        types: [
+          {
+            description: options.description,
+            accept: {
+              "application/json": [options.extension],
+            },
           },
-        },
-      ],
+        ],
+      });
+
+      // Try to use File System Access API
+      try {
+        const writable = await fileHandle.createWritable();
+        await writable.write(JSON.stringify(state, null, 2));
+        await writable.close();
+        options.onSuccess?.(fileHandle.name);
+        return;
+      } catch (writeError: any) {
+        // If createWritable fails (e.g., permission denied, insecure context),
+        // fall back to download method
+        console.warn("File System Access API write failed, falling back to download:", writeError);
+        // Fall through to download fallback
+      }
+    } catch (pickerError: any) {
+      // If showSaveFilePicker fails, fall back to download method
+      if (pickerError.name !== "AbortError") {
+        console.warn("File System Access API picker failed, falling back to download:", pickerError);
+        // Fall through to download fallback
+      } else {
+        // User cancelled, don't show error
+        return;
+      }
+    }
+
+    // Fallback to download method if File System Access API fails
+    const blob = new Blob([JSON.stringify(state, null, 2)], {
+      type: "application/json",
     });
-
-    const writable = await fileHandle.createWritable();
-    await writable.write(JSON.stringify(state, null, 2));
-    await writable.close();
-
-    options.onSuccess?.(fileHandle.name);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    options.onSuccess?.(fileName);
   } catch (error: any) {
     if (error.name !== "AbortError") {
       const err = error instanceof Error ? error : new Error(String(error));

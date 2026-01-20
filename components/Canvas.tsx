@@ -2,6 +2,7 @@
 import React, { useState, useCallback, useRef, useEffect, MouseEvent, TouchEvent, DragEvent, WheelEvent } from 'react';
 import { CanvasModule, Connection, ModuleType, ModuleStatus } from '../types';
 import { ComponentRenderer as ModuleNode } from './ComponentRenderer';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface CanvasProps {
   modules: CanvasModule[];
@@ -30,6 +31,7 @@ export const Canvas: React.FC<CanvasProps> = ({
     canvasContainerRef, onViewDetails, onEditParameters, onRunModule, 
     onDeleteModule, onUpdateModuleName, onUpdateModuleParameters
 }) => {
+  const { theme } = useTheme();
   const [dragConnection, setDragConnection] = useState<{ from: { moduleId: string, portName: string, isInput: boolean }, to: { x: number, y: number } } | null>(null);
   const [tappedSourcePort, setTappedSourcePort] = useState<{ moduleId: string; portName: string; } | null>(null);
   const portRefs = useRef(new Map<string, HTMLDivElement>());
@@ -434,7 +436,7 @@ export const Canvas: React.FC<CanvasProps> = ({
             return (
               <div
                 key={`box-${module.id}`}
-                className="absolute border-2 border-gray-500 bg-gray-800/20 rounded-lg pointer-events-none"
+                className={`absolute border-2 ${theme === 'light' ? 'border-gray-300 bg-gray-100/20' : 'border-gray-500 bg-gray-800/20'} rounded-lg pointer-events-none`}
                 style={{
                   left: `${boxX}px`,
                   top: `${boxY}px`,
@@ -489,7 +491,7 @@ export const Canvas: React.FC<CanvasProps> = ({
                 const pathD = `M${start.x},${start.y} C${start.x},${start.y + 75} ${end.x},${end.y - 75} ${end.x},${end.y}`;
                 return (
                     <g key={conn.id} onDoubleClick={() => handleConnectionDoubleClick(conn.id)}>
-                        <path d={pathD} stroke="#9ca3af" strokeWidth="2" fill="none" markerEnd="url(#arrow)" style={{ pointerEvents: 'none' }} />
+                        <path d={pathD} stroke={theme === 'light' ? '#1f2937' : '#9ca3af'} strokeWidth={theme === 'light' ? "2.5" : "2"} fill="none" markerEnd="url(#arrow)" style={{ pointerEvents: 'none' }} />
                         <path d={pathD} stroke="transparent" strokeWidth="20" fill="none" style={{ cursor: 'pointer', pointerEvents: 'stroke' }}>
                           <title>Double-click to delete connection</title>
                         </path>

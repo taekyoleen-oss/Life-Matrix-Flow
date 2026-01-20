@@ -5,6 +5,7 @@ import { PlayIcon, XMarkIcon } from './icons';
 import { TOOLBOX_MODULES } from '../constants';
 import { ModuleOutputSummary } from './ModuleOutputSummary';
 import { ModuleInputSummary } from './ModuleInputSummary';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface PortComponentProps {
   port: Port; isInput: boolean; moduleId: string;
@@ -40,22 +41,23 @@ interface ModuleNodeProps {
   isRunnable: boolean;
 }
 
-const statusColors = {
-    [ModuleStatus.Pending]: 'bg-gray-800/50 border-gray-600',
-    [ModuleStatus.Running]: 'bg-yellow-900/50 border-yellow-500',
-    [ModuleStatus.Success]: 'bg-blue-900/50 border-blue-500',
-    [ModuleStatus.Error]: 'bg-red-900/50 border-red-500',
-};
+const getStatusColors = (theme: 'light' | 'dark') => ({
+    [ModuleStatus.Pending]: theme === 'light' ? 'bg-gray-100 border-gray-400' : 'bg-gray-800/50 border-gray-600',
+    [ModuleStatus.Running]: theme === 'light' ? 'bg-yellow-100 border-yellow-500' : 'bg-yellow-900/50 border-yellow-500',
+    [ModuleStatus.Success]: theme === 'light' ? 'bg-blue-100 border-blue-500' : 'bg-blue-900/50 border-blue-500',
+    [ModuleStatus.Error]: theme === 'light' ? 'bg-red-100 border-red-500' : 'bg-red-900/50 border-red-500',
+});
 
 // Special status colors for ScenarioRunner and PipelineExplainer (always gray when pending)
-const specialModuleStatusColors = {
-    [ModuleStatus.Pending]: 'bg-gray-700/50 border-gray-500',
-    [ModuleStatus.Running]: 'bg-yellow-900/50 border-yellow-500',
-    [ModuleStatus.Success]: 'bg-blue-900/50 border-blue-500',
-    [ModuleStatus.Error]: 'bg-red-900/50 border-red-500',
-};
+const getSpecialModuleStatusColors = (theme: 'light' | 'dark') => ({
+    [ModuleStatus.Pending]: theme === 'light' ? 'bg-gray-200/50 border-gray-400' : 'bg-gray-700/50 border-gray-500',
+    [ModuleStatus.Running]: theme === 'light' ? 'bg-yellow-100 border-yellow-500' : 'bg-yellow-900/50 border-yellow-500',
+    [ModuleStatus.Success]: theme === 'light' ? 'bg-blue-100 border-blue-500' : 'bg-blue-900/50 border-blue-500',
+    [ModuleStatus.Error]: theme === 'light' ? 'bg-red-100 border-red-500' : 'bg-red-900/50 border-red-500',
+});
 
 const PortComponent: React.FC<PortComponentProps> = ({ port, isInput, moduleId, portRefs, onStartConnection, onEndConnection, isTappedSource, onTapPort, style }) => {
+    const { theme } = useTheme();
     const handleMouseDown = (e: MouseEvent) => { e.stopPropagation(); onStartConnection(moduleId, port.name, e.clientX, e.clientY, isInput); };
     const handleMouseUp = (e: MouseEvent) => { e.stopPropagation(); onEndConnection(moduleId, port.name, isInput); };
     const handleTouchStart = (e: TouchEvent) => { e.stopPropagation(); const t = e.touches[0]; onStartConnection(moduleId, port.name, t.clientX, t.clientY, isInput); };
@@ -66,7 +68,7 @@ const PortComponent: React.FC<PortComponentProps> = ({ port, isInput, moduleId, 
         <div 
              ref={el => { const key = `${moduleId}-${port.name}-${isInput ? 'in' : 'out'}`; if (el) portRefs.current.set(key, el); else portRefs.current.delete(key); }}
              style={style}
-             className={`w-4 h-4 rounded-full border-2 cursor-pointer z-10 ${isTappedSource ? 'bg-purple-500 border-purple-400 ring-2 ring-purple-300' : 'bg-gray-600 border-gray-400 hover:bg-blue-500'}`}
+             className={`w-4 h-4 rounded-full border-2 cursor-pointer z-10 ${isTappedSource ? 'bg-purple-500 border-purple-400 ring-2 ring-purple-300' : theme === 'light' ? 'bg-gray-400 border-gray-500 hover:bg-blue-500' : 'bg-gray-600 border-gray-400 hover:bg-blue-500'}`}
              onMouseDown={handleMouseDown} onMouseUp={handleMouseUp}
              onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}
              onClick={handleClick}
@@ -98,6 +100,7 @@ export const ComponentRenderer: React.FC<ModuleNodeProps> = ({
     dragConnection,
     isRunnable 
 }) => {
+  const { theme } = useTheme();
   const lastTapRef = useRef(0);
   const moduleInfo = TOOLBOX_MODULES.find(m => m.type === module.type);
 
@@ -121,11 +124,31 @@ export const ComponentRenderer: React.FC<ModuleNodeProps> = ({
   const isSpecialModule = module.type === ModuleType.ScenarioRunner || module.type === ModuleType.PipelineExplainer;
   const isTextBox = module.type === ModuleType.TextBox;
   const isGroupBox = module.type === ModuleType.GroupBox;
+  const statusColors = getStatusColors(theme);
+  const specialModuleStatusColors = getSpecialModuleStatusColors(theme);
   const moduleStatusColors = isSpecialModule ? specialModuleStatusColors : statusColors;
   
   // Different styling for special modules: rounded corners (rounded-2xl) and different shape
   const borderRadiusClass = isSpecialModule ? 'rounded-2xl' : 'rounded-lg';
-  const wrapperClasses = `absolute w-56 h-auto min-h-[80px] backdrop-blur-md border ${borderRadiusClass} shadow-lg flex flex-col cursor-move ${moduleStatusColors[module.status]} ${isRunnableAndPending && !isSpecialModule ? 'border-green-600 bg-green-900/30' : ''} ${isSelected ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-blue-500' : ''}`;
+  const getBackgroundColor = () => {
+    if (theme === "light") {
+      if (module.status === ModuleStatus.Success) {
+        return "bg-blue-100";
+      } else if (module.status === ModuleStatus.Pending && isRunnable) {
+        return "bg-green-100";
+      }
+      return "bg-white";
+    } else {
+      if (module.status === ModuleStatus.Success) {
+        return "bg-blue-900/50";
+      } else if (module.status === ModuleStatus.Pending && isRunnable) {
+        return "bg-green-900/30";
+      }
+      return "bg-gray-800";
+    }
+  };
+  const ringOffset = theme === "light" ? "ring-offset-white" : "ring-offset-gray-900";
+  const wrapperClasses = `absolute w-56 h-auto min-h-[80px] backdrop-blur-md border ${borderRadiusClass} shadow-lg flex flex-col cursor-move ${getBackgroundColor()} ${moduleStatusColors[module.status]} ${isRunnableAndPending && !isSpecialModule ? (theme === 'light' ? 'border-green-600 bg-green-100' : 'border-green-600 bg-green-900/30') : ''} ${isSelected ? `ring-2 ring-offset-2 ${ringOffset} ring-blue-500` : ''}`;
   
   // Render TextBox
   if (isTextBox) {
@@ -280,7 +303,7 @@ export const ComponentRenderer: React.FC<ModuleNodeProps> = ({
             value={module.name}
             onChange={(e) => onModuleNameChange(module.id, e.target.value)}
             onClick={(e) => e.stopPropagation()}
-            className="bg-transparent text-gray-300 font-semibold border-none outline-none px-1 hover:bg-gray-800/50 rounded"
+            className={`bg-transparent ${theme === 'light' ? 'text-gray-700 hover:bg-gray-200/50' : 'text-gray-300 hover:bg-gray-800/50'} font-semibold border-none outline-none px-1 rounded`}
             placeholder="그룹 이름"
             style={{ 
               width: `${(module.parameters?.bounds?.width || 300)}px`,
@@ -335,11 +358,11 @@ export const ComponentRenderer: React.FC<ModuleNodeProps> = ({
       onTouchStart={handleTouchStart}
     >
       {/* Header: Name & Run */}
-      <div className={`flex items-center justify-between px-2 py-1 bg-gray-900/30 border-b border-gray-700 ${isSpecialModule ? 'rounded-t-2xl' : 'rounded-t-lg'} h-12 flex-shrink-0`}>
+      <div className={`flex items-center justify-between px-2 py-1 ${theme === 'light' ? 'bg-gray-200/30 border-b border-gray-300' : 'bg-gray-900/30 border-b border-gray-700'} ${isSpecialModule ? 'rounded-t-2xl' : 'rounded-t-lg'} h-12 flex-shrink-0`}>
          <div className="flex items-center gap-2 overflow-hidden">
-            {moduleInfo && <moduleInfo.icon className="w-4 h-4 text-gray-400 flex-shrink-0" />}
+            {moduleInfo && <moduleInfo.icon className={`w-4 h-4 ${theme === 'light' ? 'text-gray-600' : 'text-gray-400'} flex-shrink-0`} />}
             <h3 
-                className="font-bold text-gray-200 text-sm leading-tight" 
+                className={`font-bold ${theme === 'light' ? 'text-gray-900' : 'text-gray-200'} text-sm leading-tight`} 
                 style={{ 
                     wordBreak: 'break-word', 
                     display: '-webkit-box',
@@ -379,10 +402,10 @@ export const ComponentRenderer: React.FC<ModuleNodeProps> = ({
                 disabled={!isRunnable}
                 className={`p-1 rounded-full transition-colors ${
                     !isRunnable 
-                        ? 'text-gray-600 cursor-not-allowed opacity-50'
+                        ? (theme === 'light' ? 'text-gray-400 cursor-not-allowed opacity-50' : 'text-gray-600 cursor-not-allowed opacity-50')
                         : module.status === ModuleStatus.Success
-                        ? 'text-green-500 hover:bg-green-900/30 hover:text-green-400'
-                        : 'text-blue-500 hover:bg-blue-900/30 hover:text-blue-400'
+                        ? (theme === 'light' ? 'text-green-600 hover:bg-green-100 hover:text-green-700' : 'text-green-500 hover:bg-green-900/30 hover:text-green-400')
+                        : (theme === 'light' ? 'text-blue-600 hover:bg-blue-100 hover:text-blue-700' : 'text-blue-500 hover:bg-blue-900/30 hover:text-blue-400')
                 }`}
                 title={isRunnable ? (module.status === ModuleStatus.Success ? "Module executed successfully" : "Run Module") : "Upstream modules must run successfully first"}
              >
@@ -391,7 +414,7 @@ export const ComponentRenderer: React.FC<ModuleNodeProps> = ({
              )}
              <button 
                 onClick={handleDelete}
-                className="p-1 text-gray-500 hover:text-red-400 hover:bg-red-900/30 rounded-full transition-colors"
+                className={`p-1 ${theme === 'light' ? 'text-gray-600 hover:text-red-500 hover:bg-red-100' : 'text-gray-500 hover:text-red-400 hover:bg-red-900/30'} rounded-full transition-colors`}
                 title="Delete Module"
              >
                 <XMarkIcon className="w-4 h-4" />
@@ -404,7 +427,7 @@ export const ComponentRenderer: React.FC<ModuleNodeProps> = ({
           
            {/* Left: Input Area (1/3) */}
            <div 
-                className="w-1/3 border-r border-gray-700 p-1 flex flex-col relative group hover:bg-gray-700/50 transition-colors cursor-pointer"
+                className={`w-1/3 border-r ${theme === 'light' ? 'border-gray-300 hover:bg-gray-100/50' : 'border-gray-700 hover:bg-gray-700/50'} p-1 flex flex-col relative group transition-colors cursor-pointer`}
                 onClick={(e) => { e.stopPropagation(); onEditParameters(module.id); }}
                 onDoubleClick={(e) => { e.stopPropagation(); onEditParameters(module.id); }}
            >
@@ -414,7 +437,7 @@ export const ComponentRenderer: React.FC<ModuleNodeProps> = ({
                     <div className="text-[10px] text-gray-500 mt-1">Click to edit parameters</div>
                 </div>
 
-                <span className="font-black text-gray-500 text-[8px] tracking-widest text-center mb-0.5">INPUT</span>
+                <span className={`font-black ${theme === 'light' ? 'text-gray-600' : 'text-gray-500'} text-[8px] tracking-widest text-center mb-0.5`}>INPUT</span>
 
                 {/* Parameter Summary */}
                 <div className="flex-grow flex items-center justify-center">
@@ -450,7 +473,7 @@ export const ComponentRenderer: React.FC<ModuleNodeProps> = ({
 
            {/* Right: Output Area (2/3) */}
            <div 
-                className="w-2/3 p-1 flex flex-col justify-center relative hover:bg-gray-700/50 transition-colors cursor-pointer group"
+                className={`w-2/3 p-1 flex flex-col justify-center relative ${theme === 'light' ? 'hover:bg-gray-100/50' : 'hover:bg-gray-700/50'} transition-colors cursor-pointer group`}
                 onClick={(e) => { e.stopPropagation(); onViewDetails(module.id); }}
            >
                  {/* Tooltip for View Results */}

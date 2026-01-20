@@ -71,8 +71,15 @@ export const ArrowUturnRightIcon: React.FC<IconProps> = ({ className = '', width
 
 // Arrows Pointing Out Icon
 export const ArrowsPointingOutIcon: React.FC<IconProps> = ({ className = '', width = 24, height = 24 }) => (
-  <svg className={className} width={width} height={height} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M21 21l-6-6m6 6v-4.8m0 4.8h-4.8M3 16.2V21m0 0h4.8M3 21l6-6m2-10V3m0 0h-4.8M11 3l6 6M8 8H3m0 0v5" />
+  <svg className={className} width={width} height={height} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14.25 9.75l3.75-3.75m0 0h-3m3 3v-3m-4.5 12.75l3.75 3.75m0 0h-3m3-3v3m-12.75-4.5l-3.75 3.75m0 0v-3m0 3h3m12.75-12.75l-3.75-3.75m0 0v3m0-3h3" />
+  </svg>
+);
+
+// Arrows Pointing In Icon
+export const ArrowsPointingInIcon: React.FC<IconProps> = ({ className = '', width = 24, height = 24 }) => (
+  <svg className={className} width={width} height={height} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 15v5m0 0h5m-5-5l5-5m16 5v5m0 0h-5m5-5l-5-5M4 4l5 5m11 0l5-5m-5 5h5" />
   </svg>
 );
 
@@ -139,18 +146,14 @@ export const QueueListIcon: React.FC<IconProps> = ({ className = '', width = 24,
   </svg>
 );
 
-// Font Size Increase Icon
+// Font Size Increase Icon (using ArrowsPointingOutIcon)
 export const FontSizeIncreaseIcon: React.FC<IconProps> = ({ className = '', width = 24, height = 24 }) => (
-  <svg className={className} width={width} height={height} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M4 20V4M4 20h6M4 4h6M14 20V4M14 20h6M14 4h6M18 12h4" />
-  </svg>
+  <ArrowsPointingOutIcon className={className} width={width} height={height} />
 );
 
-// Font Size Decrease Icon
+// Font Size Decrease Icon (using ArrowsPointingInIcon)
 export const FontSizeDecreaseIcon: React.FC<IconProps> = ({ className = '', width = 24, height = 24 }) => (
-  <svg className={className} width={width} height={height} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M4 20V4M4 20h6M4 4h6M14 20V4M14 20h6M14 4h6M16 12h4" />
-  </svg>
+  <ArrowsPointingInIcon className={className} width={width} height={height} />
 );
 
 // X Mark Icon
@@ -263,5 +266,20 @@ export const BookmarkIcon: React.FC<IconProps> = ({ className = '', width = 24, 
 export const ArrowDownTrayIcon: React.FC<IconProps> = ({ className = '', width = 24, height = 24 }) => (
   <svg className={className} width={width} height={height} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
+  </svg>
+);
+
+// Sun Icon
+export const SunIcon: React.FC<IconProps> = ({ className = '', width = 24, height = 24 }) => (
+  <svg className={className} width={width} height={height} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+  </svg>
+);
+
+// Moon Icon
+export const MoonIcon: React.FC<IconProps> = ({ className = '', width = 24, height = 24 }) => (
+  <svg className={className} width={width} height={height} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
   </svg>
 );
