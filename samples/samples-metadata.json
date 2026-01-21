@@ -1,0 +1,7 @@
+{
+  "Whole Life.lifx": {
+    "inputData": "Risk Rates",
+    "description": "종신보험 프라이싱 모델",
+    "category": "종신보험"
+  }
+}

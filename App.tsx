@@ -65,6 +65,8 @@ import { NetPremiumPreviewModal } from "./components/NetPremiumPreviewModal";
 import { AdditionalVariablesPreviewModal } from "./components/AdditionalVariablesPreviewModal";
 import { PipelineReportModal } from "./components/PipelineReportModal";
 import { PipelineExecutionModal } from "./components/PipelineExecutionModal";
+import SamplesModal from "./components/SamplesModal";
+import { SamplesManagementModal } from "./components/SamplesManagementModal";
 import {
   loadSharedSamples,
   saveSampleToFile,
@@ -522,6 +524,20 @@ const App: React.FC = () => {
   const hasInitialRearranged = useRef(false);
 
   const [isSamplesMenuOpen, setIsSamplesMenuOpen] = useState(false);
+  const [isSampleMenuOpen, setIsSampleMenuOpen] = useState(false);
+  const [isSamplesManagementOpen, setIsSamplesManagementOpen] = useState(false);
+  const [folderSamples, setFolderSamples] = useState<
+    Array<{
+      id?: number;
+      filename: string;
+      name: string;
+      data: any;
+      inputData?: string;
+      description?: string;
+      category?: string;
+    }>
+  >([]);
+  const [isLoadingSamples, setIsLoadingSamples] = useState(false);
   const [isMyWorkMenuOpen, setIsMyWorkMenuOpen] = useState(false);
   
   // Close menus when clicking outside
@@ -978,20 +994,448 @@ const App: React.FC = () => {
     };
   }, [productName, modules, connections]);
 
-  const handleLoadSample = (sample: SampleData) => {
-    resetModules(sample.modules);
-    _setConnections(sample.connections);
-    setProductName(sample.name);
-    setSelectedModuleIds([]);
-    setIsDirty(false);
-    setIsSamplesMenuOpen(false);
-    setIsMyWorkMenuOpen(false);
-    // Trigger auto-layout after a short delay
-    setTimeout(() => {
-      hasInitialRearranged.current = false; // Reset to force layout
-      handleRearrangeModules();
-    }, 100);
-  };
+  // Samples 폴더의 파일 목록 가져오기 (DB 또는 samples.json에서 로드)
+  const loadFolderSamplesLocal = useCallback(async () => {
+    setIsLoadingSamples(true);
+    try {
+      // 프로덕션 환경(Vercel)에서는 samples.json 사용, 개발 환경에서는 DB API 시도
+      const isProduction =
+        window.location.hostname !== "localhost" &&
+        window.location.hostname !== "127.0.0.1";
+
+      if (isProduction) {
+        // 프로덕션: samples.json 직접 사용
+        console.log("Production environment: Loading from samples.json");
+        const response = await fetch("/samples/samples.json");
+        if (response.ok) {
+          const samples = await response.json();
+          if (Array.isArray(samples) && samples.length > 0) {
+            console.log(`Loaded ${samples.length} samples from samples.json`);
+            setFolderSamples(samples);
+          } else {
+            setFolderSamples([]);
+          }
+        } else {
+          console.error("Failed to load samples.json:", response.status);
+          setFolderSamples([]);
+        }
+        return;
+      }
+
+      // 개발 환경: DB API 시도
+      try {
+        const API_BASE =
+          import.meta.env.VITE_API_URL || "http://localhost:3002";
+        const response = await fetch(`${API_BASE}/api/samples`);
+
+        if (!response.ok) {
+          throw new Error(`DB API returned ${response.status}`);
+        }
+
+        const samples = await response.json();
+
+        if (Array.isArray(samples) && samples.length > 0) {
+          console.log(
+            `Loaded ${samples.length} samples from DB:`,
+            samples.map((s: any) => s.name || s.filename)
+          );
+          // DB 형식을 앱 형식으로 변환
+          const formattedSamples = samples.map((s: any) => ({
+            id: s.id,
+            filename: s.filename,
+            name: s.name,
+            inputData: s.input_data,
+            description: s.description,
+            category: s.category || "기타",
+            data: null,
+          }));
+          setFolderSamples(formattedSamples);
+        } else {
+          console.log("No samples found in DB, falling back to samples.json");
+          throw new Error("No samples in DB");
+        }
+      } catch (dbError: any) {
+        // DB API 실패 시 samples.json으로 폴백
+        console.warn(
+          "DB API not available, falling back to samples.json:",
+          dbError.message
+        );
+        
+        // 503 에러인 경우 better-sqlite3 빌드 문제일 수 있음
+        if (dbError.message && dbError.message.includes("503")) {
+          console.warn(
+            "Samples API is not available. better-sqlite3 may need to be built."
+          );
+        }
+        
+        try {
+          const fallbackResponse = await fetch("/samples/samples.json");
+          if (fallbackResponse.ok) {
+            const samples = await fallbackResponse.json();
+            if (Array.isArray(samples) && samples.length > 0) {
+              console.log(
+                `Loaded ${samples.length} samples from samples.json (fallback)`
+              );
+              const formattedSamples = samples.map((s: any) => ({
+                ...s,
+                category: s.category || "기타",
+              }));
+              setFolderSamples(formattedSamples);
+            } else {
+              setFolderSamples([]);
+            }
+          } else {
+            setFolderSamples([]);
+          }
+        } catch (fallbackError) {
+          console.error("Failed to load samples.json:", fallbackError);
+          setFolderSamples([]);
+        }
+      }
+    } catch (error: any) {
+      console.error("Error loading samples:", error);
+      setFolderSamples([]);
+    } finally {
+      setIsLoadingSamples(false);
+    }
+  }, []);
+
+  // Samples 메뉴가 열릴 때마다 폴더 샘플 목록 새로고침
+  useEffect(() => {
+    if (isSampleMenuOpen) {
+      console.log("Samples menu opened, loading folder samples...");
+      const timer = setTimeout(() => {
+        loadFolderSamplesLocal();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isSampleMenuOpen, loadFolderSamplesLocal]);
+
+  const handleLoadSample = useCallback(
+    async (
+      sampleName: string,
+      filename?: string,
+      sampleId?: number
+    ) => {
+      console.log(
+        "handleLoadSample called with:",
+        sampleName,
+        "filename:",
+        filename,
+        "sampleId:",
+        sampleId
+      );
+      try {
+        let sampleModel: any = null;
+
+        if (sampleId) {
+          // DB에서 샘플 로드 (ID가 있는 경우)
+          try {
+            const API_BASE =
+              import.meta.env.VITE_API_URL || "http://localhost:3002";
+            const response = await fetch(`${API_BASE}/api/samples/${sampleId}`);
+            if (!response.ok) {
+              throw new Error(
+                `Failed to fetch sample from DB: ${response.status} ${response.statusText}`
+              );
+            }
+            const dbSample = await response.json();
+            sampleModel = dbSample.file_content; // file_content는 이미 JSON 파싱됨
+          } catch (error: any) {
+            console.error("Error loading sample from DB:", error);
+            alert(`Error loading sample from DB: ${error.message || error}`);
+            return;
+          }
+        } else if (filename) {
+          // samples.json에서 파일 찾기
+          try {
+            const response = await fetch("/samples/samples.json");
+            if (!response.ok) {
+              throw new Error(
+                `Failed to fetch samples.json: ${response.status}`
+              );
+            }
+            const samples = await response.json();
+            if (Array.isArray(samples)) {
+              const foundSample = samples.find(
+                (s: any) => s.filename === filename || s.name === sampleName
+              );
+              if (foundSample && foundSample.data) {
+                sampleModel = foundSample.data;
+                console.log(
+                  "Loaded sample from samples.json:",
+                  foundSample.name
+                );
+              } else {
+                alert(`Sample file not found: ${filename}`);
+                return;
+              }
+            } else {
+              alert(`Invalid samples.json format`);
+              return;
+            }
+          } catch (error: any) {
+            console.error("Error loading folder sample:", error);
+            alert(`Error loading sample file: ${error.message || error}`);
+            return;
+          }
+        } else {
+          // Shared samples에서 찾기
+          const foundSample = sharedSamples.find((s) => s.name === sampleName);
+          if (foundSample) {
+            sampleModel = foundSample;
+          }
+        }
+
+        console.log("Found sample model:", sampleModel);
+        if (!sampleModel) {
+          console.error("Sample model not found:", sampleName);
+          alert(`Sample model "${sampleName}" not found.`);
+          return;
+        }
+
+        // Convert sample model format to app format
+        const originalIdToNewIdMap = new Map<string, string>();
+        const newModules: CanvasModule[] = sampleModel.modules.map(
+          (m: any, index: number) => {
+            const moduleId = `module-${Date.now()}-${index}`;
+            const originalId = m.id;
+
+            if (originalId) {
+              originalIdToNewIdMap.set(originalId, moduleId);
+            }
+
+            const defaultModule = DEFAULT_MODULES.find(
+              (dm) => dm.type === m.type
+            );
+            if (!defaultModule) {
+              alert(`Module type "${m.type}" not found in DEFAULT_MODULES.`);
+              throw new Error(`Module type "${m.type}" not found`);
+            }
+            const moduleInfo = TOOLBOX_MODULES.find((tm) => tm.type === m.type);
+            const defaultName = moduleInfo ? moduleInfo.name : m.type;
+            return {
+              ...defaultModule,
+              id: moduleId,
+              name: m.name || defaultName,
+              position: m.position || { x: 50 + (index % 5) * 300, y: 50 + Math.floor(index / 5) * 150 },
+              parameters: m.parameters || defaultModule.parameters,
+              status: ModuleStatus.Pending,
+              // inputs와 outputs도 명시적으로 설정 (연결 검증에 필요)
+              inputs: m.inputs || defaultModule.inputs,
+              outputs: m.outputs || defaultModule.outputs,
+            };
+          }
+        );
+
+        // Convert connections - ensure all module IDs are mapped correctly
+        console.log(
+          "Processing connections, total:",
+          sampleModel.connections?.length || 0
+        );
+        console.log("First connection sample:", sampleModel.connections?.[0]);
+        console.log("Modules count:", sampleModel.modules?.length || 0);
+        console.log("New modules count:", newModules.length);
+        console.log("ID mapping size:", originalIdToNewIdMap.size);
+
+        const newConnections: Connection[] = (sampleModel.connections || [])
+          .map((c: any, index: number) => {
+            try {
+              // Get original module IDs from connection
+              const originalFromId = c.from?.moduleId;
+              const originalToId = c.to?.moduleId;
+
+              if (!originalFromId || !originalToId) {
+                console.warn(
+                  `Connection at index ${index}: Missing module IDs`,
+                  { c }
+                );
+                return null;
+              }
+
+              // Get new module IDs from the mapping
+              const newFromId = originalIdToNewIdMap.get(originalFromId);
+              const newToId = originalIdToNewIdMap.get(originalToId);
+
+              if (!newFromId || !newToId) {
+                // Try to find by index as fallback
+                const originalFromIndex = sampleModel.modules.findIndex(
+                  (m: any) => m.id === originalFromId
+                );
+                const originalToIndex = sampleModel.modules.findIndex(
+                  (m: any) => m.id === originalToId
+                );
+
+                if (originalFromIndex >= 0 && originalToIndex >= 0) {
+                  const fromModule = newModules[originalFromIndex];
+                  const toModule = newModules[originalToIndex];
+
+                  if (!fromModule || !toModule) {
+                    console.warn(
+                      `Connection at index ${index}: Module not found by index`,
+                      {
+                        originalFromId,
+                        originalToId,
+                        fromIndex: originalFromIndex,
+                        toIndex: originalToIndex,
+                      }
+                    );
+                    return null;
+                  }
+
+                  // Verify ports exist
+                  const fromPort = c.from?.portName || c.from?.port || "";
+                  const toPort = c.to?.portName || c.to?.port || "";
+
+                  const fromPortExists = fromModule.outputs?.some(
+                    (o) => o.name === fromPort
+                  );
+                  const toPortExists = toModule.inputs?.some(
+                    (i) => i.name === toPort
+                  );
+
+                  if (!fromPortExists || !toPortExists) {
+                    console.warn(
+                      `Connection at index ${index}: Port not found`,
+                      {
+                        fromPort,
+                        toPort,
+                        fromPortExists,
+                        toPortExists,
+                        fromModuleOutputs: fromModule.outputs?.map((o) => o.name),
+                        toModuleInputs: toModule.inputs?.map((i) => i.name),
+                      }
+                    );
+                    return null;
+                  }
+
+                  return {
+                    id: `connection-${Date.now()}-${index}`,
+                    from: {
+                      moduleId: fromModule.id,
+                      portName: fromPort,
+                    },
+                    to: {
+                      moduleId: toModule.id,
+                      portName: toPort,
+                    },
+                  };
+                } else {
+                  console.warn(
+                    `Connection at index ${index}: Could not find module IDs`,
+                    {
+                      originalFromId,
+                      originalToId,
+                      newFromId,
+                      newToId,
+                      fromIndex: originalFromIndex,
+                      toIndex: originalToIndex,
+                      availableModuleIds:
+                        sampleModel.modules?.map((m: any) => m.id) || [],
+                      mapSize: originalIdToNewIdMap.size,
+                    }
+                  );
+                  return null;
+                }
+              }
+
+              // Verify both modules exist in the new modules array
+              const fromModule = newModules.find((m) => m.id === newFromId);
+              const toModule = newModules.find((m) => m.id === newToId);
+
+              if (!fromModule || !toModule) {
+                console.warn(
+                  `Connection at index ${index}: Module not found in new modules`,
+                  {
+                    newFromId,
+                    newToId,
+                    fromModule: !!fromModule,
+                    toModule: !!toModule,
+                  }
+                );
+                return null;
+              }
+
+              // Get port names
+              const fromPort = c.from?.portName || c.from?.port || "";
+              const toPort = c.to?.portName || c.to?.port || "";
+
+              // Verify ports exist
+              const fromPortExists = fromModule.outputs?.some(
+                (o) => o.name === fromPort
+              );
+              const toPortExists = toModule.inputs?.some(
+                (i) => i.name === toPort
+              );
+
+              if (!fromPortExists || !toPortExists) {
+                console.warn(`Connection at index ${index}: Port not found`, {
+                  fromPort,
+                  toPort,
+                  fromPortExists,
+                  toPortExists,
+                  fromModuleOutputs: fromModule.outputs?.map((o) => o.name),
+                  toModuleInputs: toModule.inputs?.map((i) => i.name),
+                });
+                return null;
+              }
+
+              return {
+                id: `connection-${Date.now()}-${index}`,
+                from: {
+                  moduleId: newFromId,
+                  portName: fromPort,
+                },
+                to: {
+                  moduleId: newToId,
+                  portName: toPort,
+                },
+              };
+            } catch (error: any) {
+              console.error(
+                `Error processing connection at index ${index}:`,
+                error,
+                { connection: c }
+              );
+              return null;
+            }
+          })
+          .filter((conn): conn is Connection => conn !== null);
+
+        console.log(
+          `Successfully created ${newConnections.length} connections out of ${sampleModel.connections?.length || 0}`
+        );
+
+        resetModules(newModules);
+        _setConnections(newConnections);
+        setProductName(sampleModel.name || sampleName || sampleModel.productName);
+        setSelectedModuleIds([]);
+        setIsDirty(false);
+        setIsSampleMenuOpen(false);
+        setIsSamplesMenuOpen(false);
+        setIsMyWorkMenuOpen(false);
+
+        // 위치 정보가 있으면 자동 재배치를 건너뛰고, 없으면 재배치
+        const hasPositions = newModules.some(m => m.position && (m.position.x !== 0 || m.position.y !== 0));
+        if (!hasPositions) {
+          // 위치 정보가 없으면 자동 재배치
+          setTimeout(() => {
+            hasInitialRearranged.current = false;
+            handleRearrangeModules();
+          }, 100);
+        } else {
+          // 위치 정보가 있으면 Fit to View만 실행
+          setTimeout(() => {
+            handleFitToView();
+          }, 100);
+        }
+      } catch (error: any) {
+        console.error("Error loading sample:", error);
+        alert(`Error loading sample: ${error.message || error}`);
+      }
+    },
+    [sharedSamples, resetModules, _setConnections, handleRearrangeModules]
+  );
 
   // Save to shared samples (downloads file)
   const handleSaveToSharedSamples = () => {
@@ -4309,55 +4753,18 @@ const App: React.FC = () => {
             <div className="h-5 border-l border-gray-300 dark:border-gray-700"></div>
 
             {/* Samples Button */}
-            <div className="relative samples-menu-container">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsSamplesMenuOpen(!isSamplesMenuOpen);
-                  setIsMyWorkMenuOpen(false);
-                }}
-                className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md font-semibold transition-colors ${
-                  isSamplesMenuOpen
-                    ? "bg-purple-600 text-white"
-                    : "bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-200"
-                }`}
-                title="Shared Samples"
-              >
-                <BeakerIcon className="h-4 w-4" />
-                Samples
-              </button>
-              {isSamplesMenuOpen && (
-                <div 
-                  className="absolute top-full left-0 mt-2 w-56 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 overflow-hidden"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="p-2 text-xs font-bold text-gray-500 dark:text-gray-500 uppercase border-b border-gray-200 dark:border-gray-700">
-                    Shared Models
-                  </div>
-                  <div className="max-h-64 overflow-y-auto">
-                    {sharedSamples.length === 0 ? (
-                      <div className="px-4 py-2 text-sm text-gray-400 dark:text-gray-400 italic">
-                        No shared samples
-                      </div>
-                    ) : (
-                      sharedSamples.map((sample, idx) => (
-                        <div
-                          key={idx}
-                          className="flex items-center justify-between group border-b border-gray-200 dark:border-gray-700 last:border-0 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                        >
-                          <button
-                            onClick={() => handleLoadSample(sample)}
-                            className="flex-1 text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white transition-colors"
-                          >
-                            {sample.name}
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
+            <button
+              onClick={() => {
+                setIsSampleMenuOpen(true);
+                setIsSamplesMenuOpen(false);
+                setIsMyWorkMenuOpen(false);
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-md font-semibold transition-colors bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-200"
+              title="Samples"
+            >
+              <BeakerIcon className="h-4 w-4" />
+              Samples
+            </button>
 
             {/* My Work Button */}
             <div className="relative my-work-menu-container">
@@ -4463,7 +4870,7 @@ const App: React.FC = () => {
             <button
               onClick={undo}
               disabled={!canUndo}
-              className="p-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-md disabled:text-gray-400 dark:disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
+              className="p-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-md disabled:text-gray-400 dark:disabled:text-gray-600 disabled:cursor-not-allowed transition-colors flex-shrink-0"
               title="Undo (Ctrl+Z)"
             >
               <ArrowUturnLeftIcon className="h-5 w-5" />
@@ -4471,13 +4878,12 @@ const App: React.FC = () => {
             <button
               onClick={redo}
               disabled={!canRedo}
-              className="p-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-md disabled:text-gray-400 dark:disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
+              className="p-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-md disabled:text-gray-400 dark:disabled:text-gray-600 disabled:cursor-not-allowed transition-colors flex-shrink-0"
               title="Redo (Ctrl+Y)"
             >
               <ArrowUturnRightIcon className="h-5 w-5" />
             </button>
-
-            <div className="h-5 border-l border-gray-300 dark:border-gray-700"></div>
+            <div className="h-5 border-l border-gray-700"></div>
 
             <button
               onClick={handleSetFolder}
@@ -4702,20 +5108,20 @@ const App: React.FC = () => {
                                 );
                               })}
                             </div>
-                            <div className="flex flex-row gap-1 items-center">
+                            <div className="flex gap-1 ml-auto">
                               <button
                                 onClick={() => adjustFontSize(true)}
                                 className="p-1 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded transition-colors"
                                 title="글자 크게"
                               >
-                                <FontSizeIncreaseIcon className="h-4 w-4 text-gray-700 dark:text-gray-300" />
+                                <FontSizeIncreaseIcon className="h-4 w-4 text-gray-300" />
                               </button>
                               <button
                                 onClick={() => adjustFontSize(false)}
                                 className="p-1 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded transition-colors"
                                 title="글자 작게"
                               >
-                                <FontSizeDecreaseIcon className="h-4 w-4 text-gray-700 dark:text-gray-300" />
+                                <FontSizeDecreaseIcon className="h-4 w-4 text-gray-300" />
                               </button>
                             </div>
                           </>
@@ -4788,12 +5194,20 @@ const App: React.FC = () => {
               transform: `translate(calc(-50% + ${controlsPosition.x}px), ${controlsPosition.y}px)`,
               cursor: "grab",
             }}
-            className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-gray-900/80 backdrop-blur-md rounded-full px-4 py-2 flex items-center gap-4 shadow-2xl z-50 border border-gray-700 select-none transition-transform active:scale-95"
+            className={`absolute bottom-8 left-1/2 -translate-x-1/2 backdrop-blur-md rounded-full px-4 py-2 flex items-center gap-4 shadow-2xl z-50 select-none transition-transform active:scale-95 ${
+              theme === "dark"
+                ? "bg-gray-900/80 border border-gray-700"
+                : "bg-white/90 border border-gray-300"
+            }`}
           >
             <div className="flex items-center gap-1">
               <button
                 onClick={() => adjustScale(-0.1)}
-                className="p-2 hover:bg-gray-700/50 rounded-full text-gray-400 hover:text-white transition-colors"
+                className={`p-2 rounded-full transition-colors ${
+                  theme === "dark"
+                    ? "hover:bg-gray-700/50 text-gray-400 hover:text-white"
+                    : "hover:bg-gray-200 text-gray-600 hover:text-gray-900"
+                }`}
               >
                 <MinusIcon className="w-5 h-5" />
               </button>
@@ -4802,32 +5216,52 @@ const App: React.FC = () => {
                   setScale(1);
                   setPan({ x: 0, y: 0 });
                 }}
-                className="px-2 text-sm font-medium text-gray-300 hover:text-white min-w-[3rem] text-center"
+                className={`px-2 text-sm font-medium min-w-[3rem] text-center ${
+                  theme === "dark"
+                    ? "text-gray-300 hover:text-white"
+                    : "text-gray-700 hover:text-gray-900"
+                }`}
                 title="Reset View"
               >
                 {Math.round(scale * 100)}%
               </button>
               <button
                 onClick={() => adjustScale(0.1)}
-                className="p-2 hover:bg-gray-700/50 rounded-full text-gray-400 hover:text-white transition-colors"
+                className={`p-2 rounded-full transition-colors ${
+                  theme === "dark"
+                    ? "hover:bg-gray-700/50 text-gray-400 hover:text-white"
+                    : "hover:bg-gray-200 text-gray-600 hover:text-gray-900"
+                }`}
               >
                 <PlusIcon className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="w-px h-4 bg-gray-700"></div>
+            <div
+              className={`w-px h-4 ${
+                theme === "dark" ? "bg-gray-700" : "bg-gray-300"
+              }`}
+            ></div>
 
             <div className="flex items-center gap-1">
               <button
                 onClick={handleFitToView}
-                className="p-2 hover:bg-gray-700/50 rounded-full text-gray-400 hover:text-white transition-colors"
+                className={`p-2 rounded-full transition-colors ${
+                  theme === "dark"
+                    ? "hover:bg-gray-700/50 text-gray-400 hover:text-white"
+                    : "hover:bg-gray-200 text-gray-600 hover:text-gray-900"
+                }`}
                 title="Fit to View"
               >
                 <ArrowsPointingOutIcon className="w-5 h-5" />
               </button>
               <button
                 onClick={handleRearrangeModules}
-                className="p-2 hover:bg-gray-700/50 rounded-full text-gray-400 hover:text-white transition-colors"
+                className={`p-2 rounded-full transition-colors ${
+                  theme === "dark"
+                    ? "hover:bg-gray-700/50 text-gray-400 hover:text-white"
+                    : "hover:bg-gray-200 text-gray-600 hover:text-gray-900"
+                }`}
                 title="Auto Layout"
               >
                 <SparklesIcon className="w-5 h-5" />
@@ -4955,6 +5389,28 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Samples Modal */}
+      <SamplesModal
+        isOpen={isSampleMenuOpen}
+        onClose={() => setIsSampleMenuOpen(false)}
+        samples={folderSamples}
+        onLoadSample={handleLoadSample}
+        onManage={() => {
+          setIsSampleMenuOpen(false);
+          setIsSamplesManagementOpen(true);
+        }}
+        isLoading={isLoadingSamples}
+      />
+
+      {/* Samples Management Modal */}
+      <SamplesManagementModal
+        isOpen={isSamplesManagementOpen}
+        onClose={() => setIsSamplesManagementOpen(false)}
+        onRefresh={() => {
+          loadFolderSamplesLocal();
+        }}
+      />
     </div>
   );
 };
