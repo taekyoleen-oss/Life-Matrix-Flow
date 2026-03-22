@@ -11,11 +11,15 @@ const supabaseAnonKey =
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.warn(
-    "[Supabase] URL 또는 Anon Key가 없습니다. .env에 VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY를 설정하거나 NEXT_PUBLIC_SUPABASE_* 값을 사용하세요."
+    "[Supabase] URL 또는 Anon Key가 없습니다. Supabase 기능이 비활성화됩니다."
   );
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// 환경변수가 없을 때 createClient가 예외를 던지지 않도록 placeholder 사용
+export const supabase = createClient(
+  supabaseUrl || "https://placeholder.supabase.co",
+  supabaseAnonKey || "placeholder-anon-key"
+);
 
 export function isSupabaseConfigured(): boolean {
   return Boolean(
